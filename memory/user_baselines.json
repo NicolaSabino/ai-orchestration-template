@@ -1,1 +1,86 @@
-{}
+{
+  "IT72E5684265444671458208968216": {
+    "user_id": "IT72E5684265444671458208968216",
+    "avg_transaction_amount": 2928.52,
+    "std_transaction_amount": 0.0,
+    "typical_hours": [
+      9
+    ],
+    "typical_recipients": [
+      "US34D8467364103827609628734"
+    ],
+    "typical_locations": [],
+    "transaction_count": 2,
+    "last_updated": "2026-03-12T19:24:24.903408"
+  },
+  "FR62S8154009917998374978837": {
+    "user_id": "FR62S8154009917998374978837",
+    "avg_transaction_amount": 647.81,
+    "std_transaction_amount": 0.0,
+    "typical_hours": [
+      17
+    ],
+    "typical_recipients": [
+      "IT71E2882286304039447950146815"
+    ],
+    "typical_locations": [],
+    "transaction_count": 2,
+    "last_updated": "2026-03-12T19:25:06.540486"
+  },
+  "IT87Z7156992256146731126863052": {
+    "user_id": "IT87Z7156992256146731126863052",
+    "avg_transaction_amount": 3030.52,
+    "std_transaction_amount": 0.0,
+    "typical_hours": [
+      11
+    ],
+    "typical_recipients": [
+      "FR62S8154009917998374978837"
+    ],
+    "typical_locations": [],
+    "transaction_count": 1,
+    "last_updated": "2026-03-12T19:15:01.923649"
+  },
+  "IT11L3301135186725646672621407": {
+    "user_id": "IT11L3301135186725646672621407",
+    "avg_transaction_amount": 606.8,
+    "std_transaction_amount": 0.0,
+    "typical_hours": [
+      18
+    ],
+    "typical_recipients": [
+      "DE14Z3311879692123924005659"
+    ],
+    "typical_locations": [],
+    "transaction_count": 1,
+    "last_updated": "2026-03-12T19:15:45.518713"
+  },
+  "US34D8467364103827609628734": {
+    "user_id": "US34D8467364103827609628734",
+    "avg_transaction_amount": 927.05,
+    "std_transaction_amount": 0.0,
+    "typical_hours": [
+      14
+    ],
+    "typical_recipients": [
+      "IT80Z4941408036578189240458564"
+    ],
+    "typical_locations": [],
+    "transaction_count": 1,
+    "last_updated": "2026-03-12T19:18:34.154866"
+  },
+  "IT29I1690630275171995573164427": {
+    "user_id": "IT29I1690630275171995573164427",
+    "avg_transaction_amount": 3065.72,
+    "std_transaction_amount": 0.0,
+    "typical_hours": [
+      18
+    ],
+    "typical_recipients": [
+      "US21O5655698930111181392105"
+    ],
+    "typical_locations": [],
+    "transaction_count": 1,
+    "last_updated": "2026-03-12T19:19:24.238948"
+  }
+}

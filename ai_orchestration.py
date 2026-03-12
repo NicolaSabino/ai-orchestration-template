@@ -18,8 +18,10 @@ Usage:
 """
 
 import os
+import re
 import json
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain.tools import tool
@@ -512,6 +514,7 @@ class DataManager:
         """
         self.data_dir = data_dir
         self._transactions = []  # List[Dict]
+        self._transactions_by_sender_iban = {}  # {iban: List[Dict]}
         self._users = {}  # {iban: Dict}
         self._users_by_name = {}  # {name: Dict} for biotag lookup
         self._biotag_to_iban = {}  # {sender_id/biotag: sender_iban} built from transactions
@@ -580,12 +583,15 @@ class DataManager:
 
                 self._transactions.append(row)
 
-        # Build biotag-to-iban mapping from sender_id → sender_iban
+        # Build biotag-to-iban mapping and sender_iban index from transactions
+        self._transactions_by_sender_iban = {}
         for tx in self._transactions:
             biotag = tx.get('sender_id')
             iban = tx.get('sender_iban')
             if biotag and iban and biotag not in self._biotag_to_iban:
                 self._biotag_to_iban[biotag] = iban
+            if iban:
+                self._transactions_by_sender_iban.setdefault(iban, []).append(tx)
 
         print(f"[DataManager] Loaded {len(self._transactions)} transactions, {len(self._biotag_to_iban)} biotag mappings")
         return self._transactions
@@ -734,6 +740,10 @@ class DataManager:
         """Get all loaded transactions."""
         return self._transactions
 
+    def get_transactions_by_sender(self, iban: str) -> List[Dict]:
+        """Get transactions indexed by sender IBAN (O(1) lookup)."""
+        return self._transactions_by_sender_iban.get(iban, [])
+
     def get_user(self, iban: str) -> Optional[Dict]:
         """
         Get user by IBAN.
@@ -854,6 +864,9 @@ def run_agent_with_tracking(agent, query, session_id):
 # SECTION 5: TOOLS
 # ============================================================================
 
+# Pre-compiled patterns (module-level, compiled once)
+_URL_REGEX = re.compile(r'https?://[^\s<>"{}|\\^`\[\]]+')
+
 # Transaction Analyzer Tools
 
 @tool
@@ -872,13 +885,9 @@ def get_user_transaction_history(user_iban: str, limit: int = 50) -> str:
     from datetime import datetime
 
     data_mgr = DataManager.get_instance()
-    all_transactions = data_mgr.get_transactions()
 
-    # Filter transactions where user is the sender
-    user_transactions = [
-        tx for tx in all_transactions
-        if tx.get('sender_iban') == user_iban
-    ]
+    # Use pre-built index for O(1) lookup instead of O(n) scan
+    user_transactions = list(data_mgr.get_transactions_by_sender(user_iban))
 
     # Sort by timestamp (most recent first)
     user_transactions.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
@@ -911,13 +920,9 @@ def calculate_transaction_velocity(user_iban: str, time_window_hours: int = 24) 
     from datetime import datetime, timedelta
 
     data_mgr = DataManager.get_instance()
-    all_transactions = data_mgr.get_transactions()
 
-    # Filter transactions by user
-    user_transactions = [
-        tx for tx in all_transactions
-        if tx.get('sender_iban') == user_iban
-    ]
+    # Use pre-built index for O(1) lookup instead of O(n) scan
+    user_transactions = data_mgr.get_transactions_by_sender(user_iban)
 
     if not user_transactions:
         return json.dumps({
@@ -1210,7 +1215,6 @@ def detect_phishing_patterns(communication_text: str) -> str:
         JSON with detected patterns: {has_urgency, has_threat, has_link, score}
     """
     import json
-    import re
 
     # Define phishing indicators
     urgency_keywords = [
@@ -1246,8 +1250,7 @@ def detect_phishing_patterns(communication_text: str) -> str:
     has_suspicious = any(phrase in text_lower for phrase in suspicious_phrases)
 
     # Check for URLs (potential phishing links)
-    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-    urls = re.findall(url_pattern, communication_text)
+    urls = _URL_REGEX.findall(communication_text)
     has_link = len(urls) > 0
 
     # Check for suspicious domains
@@ -1351,7 +1354,7 @@ def get_user_gps_history(user_biotag: str, last_n_hours: int = 48) -> str:
             except (ValueError, AttributeError):
                 continue
 
-    except Exception as e:
+    except Exception:
         recent_points = gps_data  # Return all if filtering fails
 
     result = {
@@ -1543,6 +1546,10 @@ class MemoryManager:
         self.user_baselines_file = self.memory_dir / "user_baselines.json"
         self.learning_state_file = self.memory_dir / "learning_state.json"
 
+        self._cached_patterns = None      # List[dict] or None
+        self._cached_baselines = None     # Dict[str, dict] or None
+        self._cached_learning_state = None  # dict or None
+
         self._initialize_files()
 
     @classmethod
@@ -1594,8 +1601,9 @@ class MemoryManager:
         Returns:
             List of FraudPattern objects
         """
-        data = self._read_json(self.fraud_patterns_file)
-        return [FraudPattern(**pattern) for pattern in data]
+        if self._cached_patterns is None:
+            self._cached_patterns = self._read_json(self.fraud_patterns_file)
+        return [FraudPattern(**pattern) for pattern in self._cached_patterns]
 
     def save_fraud_pattern(self, pattern: FraudPattern):
         """
@@ -1604,20 +1612,21 @@ class MemoryManager:
         Args:
             pattern: FraudPattern to save
         """
-        patterns = self._read_json(self.fraud_patterns_file)
+        if self._cached_patterns is None:
+            self._cached_patterns = self._read_json(self.fraud_patterns_file)
 
         existing_index = None
-        for i, p in enumerate(patterns):
+        for i, p in enumerate(self._cached_patterns):
             if p.get("pattern_id") == pattern.pattern_id:
                 existing_index = i
                 break
 
         if existing_index is not None:
-            patterns[existing_index] = pattern.dict()
+            self._cached_patterns[existing_index] = pattern.dict()
         else:
-            patterns.append(pattern.dict())
+            self._cached_patterns.append(pattern.dict())
 
-        self._write_json(self.fraud_patterns_file, patterns)
+        self._write_json(self.fraud_patterns_file, self._cached_patterns)
 
     def query_patterns_by_type(self, pattern_type: str) -> List[FraudPattern]:
         """
@@ -1645,10 +1654,11 @@ class MemoryManager:
         Returns:
             Dict mapping user_id to UserBehaviorBaseline
         """
-        data = self._read_json(self.user_baselines_file)
+        if self._cached_baselines is None:
+            self._cached_baselines = self._read_json(self.user_baselines_file)
         return {
             user_id: UserBehaviorBaseline(**baseline_data)
-            for user_id, baseline_data in data.items()
+            for user_id, baseline_data in self._cached_baselines.items()
         }
 
     def get_user_baseline(self, user_id: str) -> Optional[UserBehaviorBaseline]:
@@ -1671,9 +1681,10 @@ class MemoryManager:
         Args:
             baseline: UserBehaviorBaseline to save
         """
-        baselines = self._read_json(self.user_baselines_file)
-        baselines[baseline.user_id] = baseline.dict()
-        self._write_json(self.user_baselines_file, baselines)
+        if self._cached_baselines is None:
+            self._cached_baselines = self._read_json(self.user_baselines_file)
+        self._cached_baselines[baseline.user_id] = baseline.dict()
+        self._write_json(self.user_baselines_file, self._cached_baselines)
 
     def update_user_baseline(self, user_id: str, transaction: Dict):
         """
@@ -1764,8 +1775,9 @@ class MemoryManager:
         Returns:
             AdaptiveLearningState object
         """
-        data = self._read_json(self.learning_state_file)
-        return AdaptiveLearningState(**data)
+        if self._cached_learning_state is None:
+            self._cached_learning_state = self._read_json(self.learning_state_file)
+        return AdaptiveLearningState(**self._cached_learning_state)
 
     def save_learning_state(self, state: AdaptiveLearningState):
         """
@@ -1774,7 +1786,8 @@ class MemoryManager:
         Args:
             state: AdaptiveLearningState to save
         """
-        self._write_json(self.learning_state_file, state.dict())
+        self._cached_learning_state = state.dict()
+        self._write_json(self.learning_state_file, self._cached_learning_state)
 
     def update_learning_state(self, transactions_analyzed: int = 0, frauds_detected: int = 0):
         """
@@ -1827,6 +1840,10 @@ class MemoryManager:
 
     def reset_memory(self):
         """Reset all memory files to initial state."""
+        # Clear in-memory caches
+        self._cached_patterns = None
+        self._cached_baselines = None
+        self._cached_learning_state = None
         # Remove existing files so _initialize_files recreates them
         for f in [self.fraud_patterns_file, self.user_baselines_file, self.learning_state_file]:
             if f.exists():
@@ -1839,31 +1856,44 @@ class MemoryManager:
 # SECTION 6.5: ORCHESTRATION & EXECUTION
 # ============================================================================
 
-def _parse_agent_result(result, expected_type):
+def _get_structured_output(model, agent_result, schema, transaction_id: str):
     """
-    Extract structured result from agent invocation.
+    Extract structured output from an agent result using model.with_structured_output(),
+    following the LangChain structured output tutorial pattern.
 
-    Handles both direct Pydantic model output (when with_structured_output works)
-    and dict-with-messages output (fallback).
+    Passes the full agent message history (including tool call results) as context
+    so the model produces the structured object in a single informed call.
+
+    Args:
+        model: ChatOpenAI instance
+        agent_result: Return value from agent.invoke({"messages": [...]})
+        schema: Pydantic model class to extract into
+        transaction_id: Transaction ID to include as context
+
+    Returns:
+        Populated Pydantic model, or None on failure
     """
-    if isinstance(result, expected_type):
-        return result
-    if isinstance(result, dict) and "messages" in result:
-        last_msg = result["messages"][-1]
-        content = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
-        try:
-            data = json.loads(content)
-            return expected_type(**data)
-        except Exception:
-            pass
-    return None
+    try:
+        messages = []
+        if isinstance(agent_result, dict) and "messages" in agent_result:
+            messages = list(agent_result["messages"])
+        messages.append(HumanMessage(
+            f"Based on your analysis above, produce the structured output. "
+            f"transaction_id={transaction_id}"
+        ))
+        structured_llm = model.with_structured_output(schema)
+        return structured_llm.invoke(messages)
+    except Exception as e:
+        print(f"  [Warning] Structured output failed for {schema.__name__}: {e}")
+        return None
 
 
 def analyze_transaction(
     transaction: Dict,
     session_id: str,
     agents: Dict,
-    memory_mgr: "MemoryManager"
+    memory_mgr: "MemoryManager",
+    model=None
 ) -> FraudDecision:
     """
     Orchestrate all 4 agents to produce a fraud decision for one transaction.
@@ -1892,6 +1922,9 @@ def analyze_transaction(
     learning_state = memory_mgr.load_learning_state()
     threshold = learning_state.decision_threshold
 
+    print(f"\n  [Phase 1/4] Preparing analysis for transaction {transaction_id[:8]}...")
+    print(f"             sender={sender_iban[:12]}... amount={amount} ts={timestamp}")
+
     langfuse_handler = CallbackHandler()
     config = {
         "callbacks": [langfuse_handler],
@@ -1899,7 +1932,8 @@ def analyze_transaction(
         "run_name": f"fraud_{transaction_id[:8]}"
     }
 
-    # ── 1. Transaction Analyzer ──────────────────────────────────────────────
+    # ── 1-3. Transaction, Behavioral, Geospatial Analyzers (parallel) ────────
+    print(f"  [Phase 2/4] Dispatching 3 sub-agents in parallel...")
     txn_query = (
         f"Analyze transaction {transaction_id} for fraud indicators.\n"
         f"Sender IBAN: {sender_iban}\n"
@@ -1914,15 +1948,77 @@ def analyze_transaction(
         f"and query fraud patterns in memory. Then return your structured analysis."
     )
 
-    txn_analysis = None
-    try:
+    behav_query = (
+        f"Analyze behavioral risk for transaction {transaction_id}.\n"
+        f"User IBAN: {sender_iban}\n"
+        f"User Biotag: {sender_id}\n"
+        f"Transaction Amount: {amount}\n"
+        f"Timestamp: {timestamp}\n"
+        f"Recipient: {recipient_iban}\n\n"
+        f"Use your tools to get the user's communications (check for phishing), their profile, "
+        f"and their behavioral baseline. Return your structured behavioral analysis."
+    )
+
+    geo_query = (
+        f"Analyze geospatial risk for transaction {transaction_id}.\n"
+        f"User IBAN: {sender_iban}\n"
+        f"User Biotag: {sender_id}\n"
+        f"Transaction Location: {location}\n"
+        f"Timestamp: {timestamp}\n\n"
+        f"Use your tools to get GPS history, calculate distances, check for impossible travel, "
+        f"and compare with the user's residence. Return your structured geospatial analysis."
+    )
+
+    def _run_txn_agent():
+        print(f"  [Agent:transaction]  -> running Transaction Analyzer...")
         result = agents["transaction"].invoke(
             {"messages": [HumanMessage(txn_query)]}, config=config
         )
-        txn_analysis = _parse_agent_result(result, TransactionAnalysisResult)
-    except Exception as e:
-        print(f"  [Warning] Transaction analyzer error: {e}")
+        print(f"  [Agent:transaction]  -> done")
+        return result
 
+    def _run_behav_agent():
+        print(f"  [Agent:behavioral]   -> running Behavioral Profiler...")
+        result = agents["behavioral"].invoke(
+            {"messages": [HumanMessage(behav_query)]}, config=config
+        )
+        print(f"  [Agent:behavioral]   -> done")
+        return result
+
+    def _run_geo_agent():
+        print(f"  [Agent:geospatial]   -> running Geospatial Analyzer...")
+        result = agents["geospatial"].invoke(
+            {"messages": [HumanMessage(geo_query)]}, config=config
+        )
+        print(f"  [Agent:geospatial]   -> done")
+        return result
+
+    txn_raw = behav_raw = geo_raw = None
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        fut_txn = executor.submit(_run_txn_agent)
+        fut_behav = executor.submit(_run_behav_agent)
+        fut_geo = executor.submit(_run_geo_agent)
+
+        try:
+            txn_raw = fut_txn.result()
+        except Exception as e:
+            print(f"  [Agent:transaction]  -> ERROR: {e}")
+
+        try:
+            behav_raw = fut_behav.result()
+        except Exception as e:
+            print(f"  [Agent:behavioral]   -> ERROR: {e}")
+
+        try:
+            geo_raw = fut_geo.result()
+        except Exception as e:
+            print(f"  [Agent:geospatial]   -> ERROR: {e}")
+
+    print(f"  [Phase 2/4] All sub-agents completed")
+
+    txn_analysis = None
+    if txn_raw is not None and model:
+        txn_analysis = _get_structured_output(model, txn_raw, TransactionAnalysisResult, transaction_id)
     if txn_analysis is None:
         txn_analysis = TransactionAnalysisResult(
             transaction_id=transaction_id,
@@ -1936,28 +2032,11 @@ def analyze_transaction(
             reasoning="Transaction analyzer did not return a structured result",
             confidence=0.3
         )
-
-    # ── 2. Behavioral Profiler ───────────────────────────────────────────────
-    behav_query = (
-        f"Analyze behavioral risk for transaction {transaction_id}.\n"
-        f"User IBAN: {sender_iban}\n"
-        f"User Biotag: {sender_id}\n"
-        f"Transaction Amount: {amount}\n"
-        f"Timestamp: {timestamp}\n"
-        f"Recipient: {recipient_iban}\n\n"
-        f"Use your tools to get the user's communications (check for phishing), their profile, "
-        f"and their behavioral baseline. Return your structured behavioral analysis."
-    )
+    print(f"  [Agent:transaction]  reasoning: {txn_analysis.reasoning}")
 
     behav_analysis = None
-    try:
-        result = agents["behavioral"].invoke(
-            {"messages": [HumanMessage(behav_query)]}, config=config
-        )
-        behav_analysis = _parse_agent_result(result, BehavioralAnomalyResult)
-    except Exception as e:
-        print(f"  [Warning] Behavioral profiler error: {e}")
-
+    if behav_raw is not None and model:
+        behav_analysis = _get_structured_output(model, behav_raw, BehavioralAnomalyResult, transaction_id)
     if behav_analysis is None:
         behav_analysis = BehavioralAnomalyResult(
             transaction_id=transaction_id,
@@ -1969,27 +2048,11 @@ def analyze_transaction(
             reasoning="Behavioral profiler did not return a structured result",
             confidence=0.3
         )
-
-    # ── 3. Geospatial Analyzer ───────────────────────────────────────────────
-    geo_query = (
-        f"Analyze geospatial risk for transaction {transaction_id}.\n"
-        f"User IBAN: {sender_iban}\n"
-        f"User Biotag: {sender_id}\n"
-        f"Transaction Location: {location}\n"
-        f"Timestamp: {timestamp}\n\n"
-        f"Use your tools to get GPS history, calculate distances, check for impossible travel, "
-        f"and compare with the user's residence. Return your structured geospatial analysis."
-    )
+    print(f"  [Agent:behavioral]   reasoning: {behav_analysis.reasoning}")
 
     geo_analysis = None
-    try:
-        result = agents["geospatial"].invoke(
-            {"messages": [HumanMessage(geo_query)]}, config=config
-        )
-        geo_analysis = _parse_agent_result(result, GeospatialAnalysisResult)
-    except Exception as e:
-        print(f"  [Warning] Geospatial analyzer error: {e}")
-
+    if geo_raw is not None and model:
+        geo_analysis = _get_structured_output(model, geo_raw, GeospatialAnalysisResult, transaction_id)
     if geo_analysis is None:
         geo_analysis = GeospatialAnalysisResult(
             transaction_id=transaction_id,
@@ -2002,8 +2065,10 @@ def analyze_transaction(
             reasoning="Geospatial analyzer did not return a structured result",
             confidence=0.3
         )
+    print(f"  [Agent:geospatial]   reasoning: {geo_analysis.reasoning}")
 
     # ── 4. Fraud Orchestrator ────────────────────────────────────────────────
+    print(f"  [Phase 3/4] Invoking Fraud Orchestrator (synthesis)...")
     patterns_summary = [
         {
             "type": p.pattern_type,
@@ -2029,9 +2094,11 @@ def analyze_transaction(
         result = agents["orchestrator"].invoke(
             {"messages": [HumanMessage(orch_query)]}, config=config
         )
-        decision = _parse_agent_result(result, FraudDecision)
+        print(f"  [Agent:orchestrator] -> done")
+        if model:
+            decision = _get_structured_output(model, result, FraudDecision, transaction_id)
     except Exception as e:
-        print(f"  [Warning] Fraud orchestrator error: {e}")
+        print(f"  [Agent:orchestrator] -> ERROR: {e}")
 
     if decision is None:
         # Fallback: rule-based average risk
@@ -2049,29 +2116,9 @@ def analyze_transaction(
             pattern_matches=[]
         )
 
-    # ── 5. Update memory ─────────────────────────────────────────────────────
-    memory_mgr.update_user_baseline(sender_iban, transaction)
-
-    if decision.is_fraudulent:
-        pattern = FraudPattern(
-            pattern_id=str(ulid.new().str),
-            pattern_type="detected_fraud",
-            description=", ".join(decision.primary_reasons[:2]) if decision.primary_reasons else "Unknown fraud",
-            features={
-                "transaction_risk": txn_analysis.risk_score,
-                "behavioral_risk": behav_analysis.risk_score,
-                "geospatial_risk": geo_analysis.risk_score,
-                "amount": amount,
-                "impossible_travel": geo_analysis.impossible_travel_detected,
-                "phishing_detected": len(behav_analysis.phishing_indicators) > 0,
-            },
-            success_rate=decision.confidence,
-            occurrences=1,
-            level_discovered=learning_state.current_level,
-            discovered_at=datetime.now().isoformat(),
-            last_seen=datetime.now().isoformat()
-        )
-        memory_mgr.save_fraud_pattern(pattern)
+    verdict = "FRAUD" if decision.is_fraudulent else "LEGIT"
+    print(f"  [Agent:orchestrator] reasoning: {decision.reasoning}")
+    print(f"  [Phase 4/4] Decision: {verdict} | risk={decision.risk_score:.2f} conf={decision.confidence:.2f}")
 
     return decision
 
@@ -2120,12 +2167,19 @@ def process_level(level: int, data_dir: str, session_id: str, memory_dir: str = 
         model=OPENROUTER_MODEL,
         temperature=0.1
     )
+    orchestrator_model = ChatOpenAI(
+        api_key=OPENROUTER_API_KEY,
+        base_url=OPENROUTER_BASE_URL,
+        model="anthropic/claude-sonnet-4.6",
+        temperature=0.1
+    )
+    print(f"[Agents] Orchestrator model: anthropic/claude-sonnet-4.6")
 
     agents = {
         "transaction": create_transaction_analyzer_agent(model),
         "behavioral": create_behavioral_profiler_agent(model),
         "geospatial": create_geospatial_analyzer_agent(model),
-        "orchestrator": create_fraud_orchestrator_agent(model)
+        "orchestrator": create_fraud_orchestrator_agent(orchestrator_model)
     }
     print("[Agents] All 4 agents ready")
 
@@ -2140,7 +2194,7 @@ def process_level(level: int, data_dir: str, session_id: str, memory_dir: str = 
               f"amount={transaction.get('amount', 0):.2f}")
 
         try:
-            decision = analyze_transaction(transaction, session_id, agents, memory_mgr)
+            decision = analyze_transaction(transaction, session_id, agents, memory_mgr, model=model)
             decisions.append(decision)
             fraud_tag = "FRAUD" if decision.is_fraudulent else "LEGIT"
             print(f"  -> {fraud_tag} (risk={decision.risk_score:.2f}, conf={decision.confidence:.2f})")
@@ -2176,12 +2230,6 @@ def process_level(level: int, data_dir: str, session_id: str, memory_dir: str = 
         for d in decisions:
             f.write(json.dumps(d.model_dump(), default=str) + "\n")
     print(f"[Output] Full results saved to: {jsonl_file}")
-
-    # ── Update learning state ─────────────────────────────────────────────────
-    memory_mgr.update_learning_state(
-        transactions_analyzed=len(decisions),
-        frauds_detected=len(fraudulent_ids)
-    )
 
     # ── Print statistics ──────────────────────────────────────────────────────
     fraud_rate = (len(fraudulent_ids) / len(decisions) * 100) if decisions else 0
@@ -2232,7 +2280,7 @@ def create_transaction_analyzer_agent(model: ChatOpenAI):
         tools=tools,
     )
 
-    return agent.with_structured_output(TransactionAnalysisResult)
+    return agent
 
 
 def create_behavioral_profiler_agent(model: ChatOpenAI):
@@ -2258,7 +2306,7 @@ def create_behavioral_profiler_agent(model: ChatOpenAI):
         tools=tools,
     )
 
-    return agent.with_structured_output(BehavioralAnomalyResult)
+    return agent
 
 
 def create_geospatial_analyzer_agent(model: ChatOpenAI):
@@ -2284,7 +2332,7 @@ def create_geospatial_analyzer_agent(model: ChatOpenAI):
         tools=tools,
     )
 
-    return agent.with_structured_output(GeospatialAnalysisResult)
+    return agent
 
 
 def create_fraud_orchestrator_agent(model: ChatOpenAI):
@@ -2304,7 +2352,7 @@ def create_fraud_orchestrator_agent(model: ChatOpenAI):
         tools=[],
     )
 
-    return agent.with_structured_output(FraudDecision)
+    return agent
 
 
 # ============================================================================

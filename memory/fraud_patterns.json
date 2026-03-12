@@ -1,1 +1,146 @@
-[]
+[
+  {
+    "pattern_id": "01KKHM1M92HNVHSPTEDCEKSWB1",
+    "pattern_type": "detected_fraud",
+    "description": "High risk from behavioral analysis due to absence of user profile., Unknown recipient not in typical recipient list raises concerns.",
+    "features": {
+      "transaction_risk": 0.1,
+      "behavioral_risk": 0.8,
+      "geospatial_risk": 1.0,
+      "amount": 2928.52,
+      "impossible_travel": false,
+      "phishing_detected": false
+    },
+    "success_rate": 0.8,
+    "occurrences": 1,
+    "level_discovered": 1,
+    "discovered_at": "2026-03-12T19:13:21.827761",
+    "last_seen": "2026-03-12T19:13:21.827770"
+  },
+  {
+    "pattern_id": "01KKHM34WMD37Q0DNPZ93J0KHH",
+    "pattern_type": "detected_fraud",
+    "description": "High-risk transaction due to first-time recipient with a significant amount., Phishing indicators detected in recent communications.",
+    "features": {
+      "transaction_risk": 0.52,
+      "behavioral_risk": 0.75,
+      "geospatial_risk": 0.1,
+      "amount": 647.81,
+      "impossible_travel": false,
+      "phishing_detected": true
+    },
+    "success_rate": 0.85,
+    "occurrences": 1,
+    "level_discovered": 1,
+    "discovered_at": "2026-03-12T19:14:11.604168",
+    "last_seen": "2026-03-12T19:14:11.604204"
+  },
+  {
+    "pattern_id": "01KKHM4P1HH8283R3XGW7NHRVJ",
+    "pattern_type": "detected_fraud",
+    "description": "Behavioral analysis indicates a VERY_HIGH risk due to absence of user profile., Transaction amount is substantial without behavioral context, raising fraud concerns.",
+    "features": {
+      "transaction_risk": 0.14,
+      "behavioral_risk": 0.9,
+      "geospatial_risk": 1.0,
+      "amount": 3030.52,
+      "impossible_travel": false,
+      "phishing_detected": false
+    },
+    "success_rate": 0.85,
+    "occurrences": 1,
+    "level_discovered": 1,
+    "discovered_at": "2026-03-12T19:15:01.938423",
+    "last_seen": "2026-03-12T19:15:01.938443"
+  },
+  {
+    "pattern_id": "01KKHM60KJZY8AV9ERAH8RXCY5",
+    "pattern_type": "detected_fraud",
+    "description": "Geospatial analysis indicates VERY_HIGH risk due to impossible travel., Behavioral analysis shows HIGH risk due to unknown recipient and lack of user profile.",
+    "features": {
+      "transaction_risk": 0.2,
+      "behavioral_risk": 0.9,
+      "geospatial_risk": 1.0,
+      "amount": 606.8,
+      "impossible_travel": true,
+      "phishing_detected": false
+    },
+    "success_rate": 0.8,
+    "occurrences": 1,
+    "level_discovered": 1,
+    "discovered_at": "2026-03-12T19:15:45.522854",
+    "last_seen": "2026-03-12T19:15:45.522857"
+  },
+  {
+    "pattern_id": "01KKHMB59BG58BZ71AY0CDQ0Q5",
+    "pattern_type": "detected_fraud",
+    "description": "Geospatial analysis indicates VERY_HIGH risk due to impossible travel., Behavioral analysis shows HIGH risk due to phishing indicators and unusual transaction amount.",
+    "features": {
+      "transaction_risk": 0.42,
+      "behavioral_risk": 0.85,
+      "geospatial_risk": 1.0,
+      "amount": 927.05,
+      "impossible_travel": true,
+      "phishing_detected": true
+    },
+    "success_rate": 0.9,
+    "occurrences": 1,
+    "level_discovered": 1,
+    "discovered_at": "2026-03-12T19:18:34.155699",
+    "last_seen": "2026-03-12T19:18:34.155702"
+  },
+  {
+    "pattern_id": "01KKHMCP6HQVHE2X4Z3W96RMZZ",
+    "pattern_type": "detected_fraud",
+    "description": "Behavioral analysis indicates a VERY_HIGH risk due to absence of user profile., Transaction amount is significant without a known baseline for comparison.",
+    "features": {
+      "transaction_risk": 0.18,
+      "behavioral_risk": 0.9,
+      "geospatial_risk": 0.0,
+      "amount": 3065.72,
+      "impossible_travel": false,
+      "phishing_detected": false
+    },
+    "success_rate": 0.85,
+    "occurrences": 1,
+    "level_discovered": 1,
+    "discovered_at": "2026-03-12T19:19:24.243058",
+    "last_seen": "2026-03-12T19:19:24.243079"
+  },
+  {
+    "pattern_id": "01KKHMNVT9PNKR1XFYSGF37RRE",
+    "pattern_type": "detected_fraud",
+    "description": "First-time recipient with a significant amount, Transaction amount slightly higher than previous salary payments",
+    "features": {
+      "transaction_risk": 0.22,
+      "behavioral_risk": 0.1,
+      "geospatial_risk": 0.1,
+      "amount": 2928.52,
+      "impossible_travel": false,
+      "phishing_detected": false
+    },
+    "success_rate": 0.75,
+    "occurrences": 1,
+    "level_discovered": 1,
+    "discovered_at": "2026-03-12T19:24:24.905401",
+    "last_seen": "2026-03-12T19:24:24.905412"
+  },
+  {
+    "pattern_id": "01KKHMQ4FE6315K32YGYXM943W",
+    "pattern_type": "detected_fraud",
+    "description": "High-risk transaction due to first-time recipient with a significant amount., Recipient is not a registered user.",
+    "features": {
+      "transaction_risk": 0.52,
+      "behavioral_risk": 0.1,
+      "geospatial_risk": 0.1,
+      "amount": 647.81,
+      "impossible_travel": false,
+      "phishing_detected": false
+    },
+    "success_rate": 0.75,
+    "occurrences": 1,
+    "level_discovered": 1,
+    "discovered_at": "2026-03-12T19:25:06.543077",
+    "last_seen": "2026-03-12T19:25:06.543083"
+  }
+]
