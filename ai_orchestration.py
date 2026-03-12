@@ -18,6 +18,9 @@ Usage:
 """
 
 import os
+import json
+import argparse
+from pathlib import Path
 from dotenv import load_dotenv
 from langchain.tools import tool
 from langchain.agents import create_agent
@@ -314,7 +317,282 @@ def foo_command(input_text: str) -> str:
 
 
 # ============================================================================
-# SECTION 6: CONNECTIVITY TEST
+# SECTION 6: MEMORY MANAGER
+# ============================================================================
+
+class MemoryManager:
+    """
+    Singleton per gestire la memoria persistente del sistema.
+
+    Gestisce 3 file JSON:
+    - fraud_patterns.json: Lista di FraudPattern scoperti
+    - user_baselines.json: Dict di UserBehaviorBaseline per utente
+    - learning_state.json: AdaptiveLearningState globale
+    """
+
+    _instance = None
+
+    def __init__(self, memory_dir: str = "memory"):
+        """
+        Initialize MemoryManager.
+
+        Args:
+            memory_dir: Directory where JSON files are stored
+        """
+        self.memory_dir = Path(memory_dir)
+        self.memory_dir.mkdir(exist_ok=True)
+
+        self.fraud_patterns_file = self.memory_dir / "fraud_patterns.json"
+        self.user_baselines_file = self.memory_dir / "user_baselines.json"
+        self.learning_state_file = self.memory_dir / "learning_state.json"
+
+        self._initialize_files()
+
+    @classmethod
+    def get_instance(cls, memory_dir: str = "memory"):
+        """Get singleton instance."""
+        if cls._instance is None:
+            cls._instance = cls(memory_dir)
+        return cls._instance
+
+    def _initialize_files(self):
+        """Create initial JSON files if they don't exist."""
+        if not self.fraud_patterns_file.exists():
+            self._write_json(self.fraud_patterns_file, [])
+
+        if not self.user_baselines_file.exists():
+            self._write_json(self.user_baselines_file, {})
+
+        if not self.learning_state_file.exists():
+            initial_state = {
+                "current_level": 1,
+                "total_transactions_analyzed": 0,
+                "total_frauds_detected": 0,
+                "fraud_patterns_count": 0,
+                "user_baselines_count": 0,
+                "decision_threshold": 0.5,
+                "last_adaptation_timestamp": datetime.now().isoformat(),
+                "performance_metrics": {}
+            }
+            self._write_json(self.learning_state_file, initial_state)
+
+    def _read_json(self, file_path: Path) -> Any:
+        """Read JSON file."""
+        with open(file_path, 'r') as f:
+            return json.load(f)
+
+    def _write_json(self, file_path: Path, data: Any):
+        """Write JSON file."""
+        with open(file_path, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    # ========================================================================
+    # Fraud Patterns Methods
+    # ========================================================================
+
+    def load_fraud_patterns(self) -> List[FraudPattern]:
+        """
+        Load all fraud patterns from memory.
+
+        Returns:
+            List of FraudPattern objects
+        """
+        data = self._read_json(self.fraud_patterns_file)
+        return [FraudPattern(**pattern) for pattern in data]
+
+    def save_fraud_pattern(self, pattern: FraudPattern):
+        """
+        Save a new fraud pattern or update existing one.
+
+        Args:
+            pattern: FraudPattern to save
+        """
+        patterns = self._read_json(self.fraud_patterns_file)
+
+        existing_index = None
+        for i, p in enumerate(patterns):
+            if p.get("pattern_id") == pattern.pattern_id:
+                existing_index = i
+                break
+
+        if existing_index is not None:
+            patterns[existing_index] = pattern.dict()
+        else:
+            patterns.append(pattern.dict())
+
+        self._write_json(self.fraud_patterns_file, patterns)
+
+    def query_patterns_by_type(self, pattern_type: str) -> List[FraudPattern]:
+        """
+        Query fraud patterns by type.
+
+        Args:
+            pattern_type: Type of pattern to filter, or "all"
+
+        Returns:
+            List of matching FraudPattern objects
+        """
+        all_patterns = self.load_fraud_patterns()
+        if pattern_type == "all":
+            return all_patterns
+        return [p for p in all_patterns if p.pattern_type == pattern_type]
+
+    # ========================================================================
+    # User Baselines Methods
+    # ========================================================================
+
+    def load_user_baselines(self) -> Dict[str, UserBehaviorBaseline]:
+        """
+        Load all user baselines from memory.
+
+        Returns:
+            Dict mapping user_id to UserBehaviorBaseline
+        """
+        data = self._read_json(self.user_baselines_file)
+        return {
+            user_id: UserBehaviorBaseline(**baseline_data)
+            for user_id, baseline_data in data.items()
+        }
+
+    def get_user_baseline(self, user_id: str) -> Optional[UserBehaviorBaseline]:
+        """
+        Get baseline for a specific user.
+
+        Args:
+            user_id: User identifier (IBAN)
+
+        Returns:
+            UserBehaviorBaseline or None if not exists
+        """
+        baselines = self.load_user_baselines()
+        return baselines.get(user_id)
+
+    def save_user_baseline(self, baseline: UserBehaviorBaseline):
+        """
+        Save or update a user baseline.
+
+        Args:
+            baseline: UserBehaviorBaseline to save
+        """
+        baselines = self._read_json(self.user_baselines_file)
+        baselines[baseline.user_id] = baseline.dict()
+        self._write_json(self.user_baselines_file, baselines)
+
+    def update_user_baseline(self, user_id: str, transaction: Dict):
+        """
+        Update user baseline with new transaction data.
+
+        Args:
+            user_id: User IBAN
+            transaction: Transaction data to incorporate
+        """
+        baseline = self.get_user_baseline(user_id)
+
+        if baseline is None:
+            baseline = UserBehaviorBaseline(
+                user_id=user_id,
+                avg_transaction_amount=transaction.get("amount", 0),
+                std_transaction_amount=0.0,
+                typical_hours=[],
+                typical_recipients=[],
+                typical_locations=[],
+                transaction_count=1,
+                last_updated=datetime.now().isoformat()
+            )
+        else:
+            # TODO: Implement incremental update logic
+            # - Update avg_transaction_amount (running average)
+            # - Update std_transaction_amount
+            # - Add to typical_hours, typical_recipients, typical_locations
+            baseline.transaction_count += 1
+            baseline.last_updated = datetime.now().isoformat()
+
+        self.save_user_baseline(baseline)
+
+    # ========================================================================
+    # Learning State Methods
+    # ========================================================================
+
+    def load_learning_state(self) -> AdaptiveLearningState:
+        """
+        Load global learning state.
+
+        Returns:
+            AdaptiveLearningState object
+        """
+        data = self._read_json(self.learning_state_file)
+        return AdaptiveLearningState(**data)
+
+    def save_learning_state(self, state: AdaptiveLearningState):
+        """
+        Save global learning state.
+
+        Args:
+            state: AdaptiveLearningState to save
+        """
+        self._write_json(self.learning_state_file, state.dict())
+
+    def update_learning_state(self, transactions_analyzed: int = 0, frauds_detected: int = 0):
+        """
+        Update learning state with new statistics.
+
+        Args:
+            transactions_analyzed: Number of new transactions analyzed
+            frauds_detected: Number of new frauds detected
+        """
+        state = self.load_learning_state()
+
+        state.total_transactions_analyzed += transactions_analyzed
+        state.total_frauds_detected += frauds_detected
+
+        patterns = self.load_fraud_patterns()
+        baselines = self.load_user_baselines()
+
+        state.fraud_patterns_count = len(patterns)
+        state.user_baselines_count = len(baselines)
+        state.last_adaptation_timestamp = datetime.now().isoformat()
+
+        self.save_learning_state(state)
+
+    # ========================================================================
+    # Utility Methods
+    # ========================================================================
+
+    def get_statistics(self) -> Dict:
+        """
+        Get memory statistics.
+
+        Returns:
+            Dict with counts and metrics
+        """
+        patterns = self.load_fraud_patterns()
+        baselines = self.load_user_baselines()
+        state = self.load_learning_state()
+
+        return {
+            "fraud_patterns": len(patterns),
+            "user_baselines": len(baselines),
+            "total_transactions": state.total_transactions_analyzed,
+            "total_frauds": state.total_frauds_detected,
+            "fraud_rate": (
+                state.total_frauds_detected / state.total_transactions_analyzed
+                if state.total_transactions_analyzed > 0 else 0
+            ),
+            "decision_threshold": state.decision_threshold
+        }
+
+    def reset_memory(self):
+        """Reset all memory files to initial state."""
+        # Remove existing files so _initialize_files recreates them
+        for f in [self.fraud_patterns_file, self.user_baselines_file, self.learning_state_file]:
+            if f.exists():
+                f.unlink()
+        self._initialize_files()
+        print("Memory reset complete")
+
+
+# ============================================================================
+# SECTION 7: CONNECTIVITY TEST
 # ============================================================================
 
 def test_connectivity(session_id):
@@ -379,62 +657,120 @@ def test_connectivity(session_id):
 
 
 # ============================================================================
-# SECTION 7: MAIN EXECUTION
+# SECTION 8: CLI ARGUMENTS
+# ============================================================================
+
+def parse_arguments():
+    """
+    Parse command line arguments.
+
+    Returns:
+        Parsed arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="AI Multi-Agent Fraud Detection System",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Process Level 1 with training data
+  python ai_orchestration.py --level 1 --data-dir ./The\\ Truman\\ Show_train
+
+  # Process Level 2 with evaluation data
+  python ai_orchestration.py --level 2 --data-dir ./evaluation_data
+
+  # Reset memory and process Level 1
+  python ai_orchestration.py --level 1 --reset-memory
+        """
+    )
+
+    parser.add_argument(
+        "--level",
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        required=True,
+        help="Challenge level to process (1-5)"
+    )
+
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=".",
+        help="Path to data directory (default: current directory)"
+    )
+
+    parser.add_argument(
+        "--memory-dir",
+        type=str,
+        default="memory",
+        help="Path to memory directory (default: ./memory)"
+    )
+
+    parser.add_argument(
+        "--reset-memory",
+        action="store_true",
+        help="Reset memory files before processing"
+    )
+
+    parser.add_argument(
+        "--test-connectivity",
+        action="store_true",
+        help="Run connectivity test only (don't process transactions)"
+    )
+
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file path (default: level_{level}_results.jsonl)"
+    )
+
+    return parser.parse_args()
+
+
+# ============================================================================
+# SECTION 9: MAIN EXECUTION
 # ============================================================================
 
 def main():
-    """Main execution function with connectivity test and examples."""
-    # Generate a single session ID for the entire execution
+    """Main execution function with CLI support."""
+    args = parse_arguments()
+
     session_id = generate_session_id()
 
     print("=" * 70)
-    print("AI Agent Orchestration - OpenRouter + Langfuse")
+    print("AI Multi-Agent Fraud Detection System")
+    print(f"[Level] {args.level}")
+    print(f"[Data Dir] {args.data_dir}")
+    print(f"[Memory Dir] {args.memory_dir}")
     print(f"[Model] {OPENROUTER_MODEL}")
-    print(f"[Observability] Langfuse tracing: ENABLED ({LANGFUSE_HOST})")
     print(f"[Session ID] {session_id}")
     print("=" * 70)
 
-    # Run connectivity test with the same session
-    if not test_connectivity(session_id):
-        print("\n[Error] Connectivity test failed. Please check your configuration.")
+    # Reset memory if requested
+    if args.reset_memory:
+        print("\n[Memory] Resetting memory files...")
+        mem_mgr = MemoryManager.get_instance(args.memory_dir)
+        mem_mgr.reset_memory()
+        print("[Memory] Reset complete")
+
+    # Run connectivity test if requested
+    if args.test_connectivity:
+        if not test_connectivity(session_id):
+            print("\n[Error] Connectivity test failed.")
+            return
+        print("\n[Success] Connectivity test passed!")
         return
 
-    print("\n[Info] Starting main agent example...")
-    print("=" * 70)
+    # TODO: implement process_level() and call it here
+    # process_level(
+    #     level=args.level,
+    #     data_dir=args.data_dir,
+    #     memory_dir=args.memory_dir,
+    #     session_id=session_id,
+    #     output_file=args.output
+    # )
 
-    # Initialize LLM model with OpenRouter
-    model = ChatOpenAI(
-        api_key=OPENROUTER_API_KEY,
-        base_url=OPENROUTER_BASE_URL,
-        model=OPENROUTER_MODEL,
-        temperature=TEMPERATURE
-    )
-
-    # Create foo agent with foo_command tool
-    foo_agent = create_agent(
-        model=model,
-        system_prompt=FOO_AGENT_PROMPT,
-        tools=[foo_command]
-    )
-
-    # Example usage with tracking
-    print("\n[Example] Using Foo Agent with foo_command tool:")
-    print("-" * 70)
-
-    query = "Execute foo command with test input"
-    response = run_agent_with_tracking(foo_agent, query, session_id)
-
-    print(f"Query: {query}")
-    print(f"Response: {response}")
-
-    # Flush to ensure all traces are sent
-    langfuse_client.flush()
-
-    print("=" * 70)
-    print("Example completed!")
-    print(f"View all traces for session: {session_id}")
-    print(f"Langfuse URL: {LANGFUSE_HOST}")
-    print("=" * 70)
+    print("\n[Complete] Processing finished successfully!")
 
 
 # ============================================================================

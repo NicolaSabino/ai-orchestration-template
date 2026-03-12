@@ -1,0 +1,10 @@
+{
+  "current_level": 1,
+  "total_transactions_analyzed": 0,
+  "total_frauds_detected": 0,
+  "fraud_patterns_count": 0,
+  "user_baselines_count": 0,
+  "decision_threshold": 0.5,
+  "last_adaptation_timestamp": "2026-03-12T00:00:00",
+  "performance_metrics": {}
+}

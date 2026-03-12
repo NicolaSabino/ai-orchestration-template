@@ -8,8 +8,8 @@
 
 ## 📊 Progress
 
-- **Completati**: 0/3
-- **Da fare**: 3/3
+- **Completati**: 3/3
+- **Da fare**: 0/3
 
 ---
 
@@ -605,24 +605,24 @@ python ai_orchestration.py --level 1 --test-connectivity
 ## 📋 Checklist
 
 Task 8:
-- [ ] Scritto MemoryManager class
-- [ ] Implementati metodi load/save per fraud patterns
-- [ ] Implementati metodi load/save per user baselines
-- [ ] Implementati metodi load/save per learning state
-- [ ] Testato singleton pattern
-- [ ] Testato che file JSON vengano creati correttamente
-- [ ] Testato metodo get_statistics()
+- [x] Scritto MemoryManager class
+- [x] Implementati metodi load/save per fraud patterns
+- [x] Implementati metodi load/save per user baselines
+- [x] Implementati metodi load/save per learning state
+- [x] Testato singleton pattern
+- [x] Testato che file JSON vengano creati correttamente
+- [x] Testato metodo get_statistics()
 
 Task 9:
-- [ ] Creata directory `memory/`
-- [ ] Creato `fraud_patterns.json`
-- [ ] Creato `user_baselines.json`
-- [ ] Creato `learning_state.json`
-- [ ] Verificato che MemoryManager carichi i file
+- [x] Creata directory `memory/`
+- [x] Creato `fraud_patterns.json`
+- [x] Creato `user_baselines.json`
+- [x] Creato `learning_state.json`
+- [x] Verificato che MemoryManager carichi i file
 
 Task 12:
-- [ ] Implementato parse_arguments()
-- [ ] Aggiornato main() per usare CLI args
+- [x] Implementato parse_arguments()
+- [x] Aggiornato main() per usare CLI args
 - [ ] Testato `--help`
 - [ ] Testato `--level` e `--data-dir`
 - [ ] Testato `--reset-memory`
