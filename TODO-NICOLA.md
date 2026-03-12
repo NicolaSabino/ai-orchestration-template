@@ -8,9 +8,9 @@
 
 ## 📊 Progress
 
-- **Completati**: 5/8 (Task 1, 2, 3, 4, 5) ✅
+- **Completati**: 6/8 (Task 1, 2, 3, 4, 5, 11) ✅
 - **In corso**: 0/8
-- **Da fare**: 3/8 (Task 10, 11, 13)
+- **Da fare**: 2/8 (Task 10, 13)
 
 ---
 
@@ -48,6 +48,24 @@
 ### Task 5: @tool functions per Geospatial Analyzer ✅
 **Status**: COMPLETATO
 - `get_user_gps_history()` - Storico GPS con filtro temporale ✅
+- `calculate_distance()` - Calcola distanza con formula Haversine ✅
+- `check_impossible_travel()` - Verifica viaggio impossibile (>800 km/h) ✅
+- `get_user_residence()` - Residenza utente con coordinate ✅
+- Tutti i tool testati con successo
+
+### Task 11: process_level function (Main execution loop) ✅
+**Status**: COMPLETATO
+- Funzione `process_level(data_dir, session_id)` implementata in `ai_orchestration.py` (Section 6.5) ✅
+- CLI argument parsing con argparse ✅
+- 3 modalità di esecuzione:
+  - `--data-dir`: Esegue fraud detection su directory dati
+  - `--test-connectivity`: Test di connettività standalone
+  - Default: Demo mode
+- Salvataggio risultati in formato JSONL ✅
+- Statistiche e reporting completi ✅
+- Test su 125 transazioni completato con successo ✅
+- Output: `fraud_detection_results.jsonl` ✅
+- **Note**: Placeholder decisions fino a completamento Task 7 (Laura) e Task 10
 - `calculate_distance()` - Calcola distanza con formula Haversine ✅
 - `check_impossible_travel()` - Verifica viaggio impossibile (>800 km/h) ✅
 - `get_user_residence()` - Residenza utente con coordinate ✅

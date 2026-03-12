@@ -1335,27 +1335,200 @@ def test_connectivity(session_id):
 
 
 # ============================================================================
+# SECTION 6.5: PROCESS LEVEL FUNCTION (Task 11)
+# ============================================================================
+
+def process_level(data_dir: str, session_id: str):
+    """
+    Process all transactions for a level.
+
+    Args:
+        data_dir: Data directory path
+        session_id: Langfuse session ID
+    """
+    import json
+
+    print("=" * 70)
+    print("Fraud Detection System - Transaction Processing")
+    print("=" * 70)
+
+    # Load data
+    print(f"\n[Data] Loading data from: {data_dir}")
+    data_mgr = DataManager.get_instance(data_dir)
+    data_mgr.load_all_data()
+    transactions = data_mgr.get_transactions()
+
+    print(f"[Data] Loaded {len(transactions)} transactions")
+
+    if not transactions:
+        print("[Error] No transactions found. Exiting.")
+        return
+
+    # TODO: When Laura completes Task 7 (Agent factories), uncomment this:
+    # print("\n[Agents] Creating specialized fraud detection agents...")
+    # model = ChatOpenAI(
+    #     api_key=OPENROUTER_API_KEY,
+    #     base_url=OPENROUTER_BASE_URL,
+    #     model=OPENROUTER_MODEL,
+    #     temperature=TEMPERATURE
+    # )
+    #
+    # agents = {
+    #     "transaction": create_transaction_analyzer_agent(model),
+    #     "behavioral": create_behavioral_profiler_agent(model),
+    #     "geospatial": create_geospatial_analyzer_agent(model),
+    #     "orchestrator": create_fraud_orchestrator_agent(model)
+    # }
+
+    # Process transactions (placeholder until Task 10 is ready)
+    print("\n[Processing] Analyzing transactions...")
+    print("-" * 70)
+
+    results = []
+    for i, transaction in enumerate(transactions, 1):
+        print(f"\n[{i}/{len(transactions)}] Transaction {transaction.get('transaction_id', 'unknown')[:8]}...")
+
+        # Placeholder decision until Task 10 (analyze_transaction) is ready
+        # In production, this will call: analyze_transaction(transaction, session_id, agents)
+
+        # For now, create a dummy decision
+        decision = {
+            "transaction_id": transaction.get('transaction_id'),
+            "is_fraudulent": False,  # Placeholder
+            "confidence": 0.5,  # Placeholder
+            "risk_score": 0.3,  # Placeholder
+            "primary_reasons": ["Analysis pending - agents not yet integrated"],
+            "evidence": [],
+            "reasoning": "Placeholder decision: Agent orchestration (Task 10) not yet implemented. "
+                        "This will be replaced with actual fraud analysis once Laura completes Task 7 "
+                        "(agent factories) and Task 10 (analyze_transaction) is implemented.",
+            "pattern_matches": []
+        }
+
+        results.append(decision)
+
+        fraud_status = "🔴 FRAUD" if decision['is_fraudulent'] else "🟢 LEGIT"
+        print(f"  Status: {fraud_status} (confidence: {decision['confidence']:.2f})")
+
+    # Save results to JSONL
+    output_file = "fraud_detection_results.jsonl"
+    print(f"\n[Output] Saving results to: {output_file}")
+
+    with open(output_file, 'w') as f:
+        for result in results:
+            f.write(json.dumps(result) + '\n')
+
+    # Print statistics
+    print("\n" + "=" * 70)
+    print("Processing Complete!")
+    print("=" * 70)
+
+    fraud_count = sum(1 for r in results if r['is_fraudulent'])
+    fraud_rate = (fraud_count / len(results) * 100) if results else 0
+    avg_confidence = (sum(r['confidence'] for r in results) / len(results)) if results else 0
+
+    print(f"\n[Stats] Total transactions: {len(results)}")
+    print(f"[Stats] Frauds detected: {fraud_count} ({fraud_rate:.1f}%)")
+    print(f"[Stats] Average confidence: {avg_confidence:.2f}")
+    print(f"[Stats] Output file: {output_file}")
+
+    print("\n[Note] This is a placeholder implementation.")
+    print("[Note] Full fraud detection will be available after:")
+    print("       - Task 7 (Laura): Agent factories")
+    print("       - Task 8 (Alfonso): MemoryManager")
+    print("       - Task 10 (Nicola): analyze_transaction orchestration")
+
+    print("\n" + "=" * 70)
+
+
+# ============================================================================
 # SECTION 7: MAIN EXECUTION
 # ============================================================================
 
 def main():
-    """Main execution function with connectivity test and examples."""
-    # Generate a single session ID for the entire execution
+    """Main execution function with CLI argument support."""
+    import argparse
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="AI-powered Fraud Detection System",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run fraud detection on data directory
+  python ai_orchestration.py --data-dir "The Truman Show_train"
+
+  # Run connectivity test only
+  python ai_orchestration.py --test-connectivity
+
+  # Run demo mode (default)
+  python ai_orchestration.py
+        """
+    )
+
+    parser.add_argument(
+        '--data-dir',
+        type=str,
+        help='Path to data directory containing transactions, users, etc.'
+    )
+
+    parser.add_argument(
+        '--test-connectivity',
+        action='store_true',
+        help='Run connectivity test only'
+    )
+
+    args = parser.parse_args()
+
+    # Generate session ID
     session_id = generate_session_id()
 
     print("=" * 70)
-    print("AI Agent Orchestration - OpenRouter + Langfuse")
+    print("AI Agent Orchestration - Fraud Detection System")
     print(f"[Model] {OPENROUTER_MODEL}")
     print(f"[Observability] Langfuse tracing: ENABLED ({LANGFUSE_HOST})")
     print(f"[Session ID] {session_id}")
     print("=" * 70)
 
-    # Run connectivity test with the same session
+    # Mode 1: Connectivity test only
+    if args.test_connectivity:
+        print("\n[Mode] Connectivity Test")
+        if not test_connectivity(session_id):
+            print("\n[Error] Connectivity test failed.")
+            return
+        print("\n[Success] Connectivity test passed!")
+        return
+
+    # Mode 2: Process fraud detection data
+    if args.data_dir:
+        print(f"\n[Mode] Fraud Detection Processing")
+        print(f"[Data] Directory: {args.data_dir}")
+
+        # Run connectivity test first
+        print("\n[Step 1/2] Testing connectivity...")
+        if not test_connectivity(session_id):
+            print("\n[Error] Connectivity test failed. Cannot proceed.")
+            return
+
+        # Process the level
+        print("\n[Step 2/2] Processing transactions...")
+        process_level(args.data_dir, session_id)
+
+        # Flush Langfuse traces
+        langfuse_client.flush()
+        return
+
+    # Mode 3: Demo mode (default - original behavior)
+    print("\n[Mode] Demo Mode")
+    print("[Info] Use --help to see available options")
+    print("[Info] Use --data-dir to run fraud detection")
+
+    # Run connectivity test
     if not test_connectivity(session_id):
         print("\n[Error] Connectivity test failed. Please check your configuration.")
         return
 
-    print("\n[Info] Starting main agent example...")
+    print("\n[Info] Starting demo agent example...")
     print("=" * 70)
 
     # Initialize LLM model with OpenRouter
@@ -1387,7 +1560,7 @@ def main():
     langfuse_client.flush()
 
     print("=" * 70)
-    print("Example completed!")
+    print("Demo completed!")
     print(f"View all traces for session: {session_id}")
     print(f"Langfuse URL: {LANGFUSE_HOST}")
     print("=" * 70)

@@ -1,7 +1,7 @@
 # Completed Tasks Summary - Nicola's TODO
 
 **Date**: 2026-03-12
-**Progress**: 5/8 tasks completed (62.5%)
+**Progress**: 6/8 tasks completed (75%)
 
 ---
 
