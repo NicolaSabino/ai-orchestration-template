@@ -46,7 +46,12 @@ def invoke_agent(agent, message: str) -> str:
     Returns:
         Agent's response as string
     """
-    result = agent.invoke({"messages": [HumanMessage(message)]})
+    from observability import get_callbacks
+
+    result = agent.invoke(
+        {"messages": [HumanMessage(message)]},
+        config={"callbacks": get_callbacks()}
+    )
     return result["messages"][-1].content
 
 

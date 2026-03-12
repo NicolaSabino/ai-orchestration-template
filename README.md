@@ -15,6 +15,12 @@ cp .env.example .env
 # OLLAMA_MODEL=llama3.2
 # TEMPERATURE=0.7
 
+# Optional: Configure Langfuse observability
+# Set ENABLE_TRACING=true and add your Langfuse credentials
+# LANGFUSE_PUBLIC_KEY=pk-lf-...
+# LANGFUSE_SECRET_KEY=sk-lf-...
+# LANGFUSE_HOST=https://cloud.langfuse.com
+
 # Run examples
 python main.py
 ```
@@ -28,6 +34,7 @@ exercise-1/
 ├── agents.py              # Agent factory functions (~110 LOC)
 ├── tools.py               # Tools with @tool decorator (~85 LOC)
 ├── orchestrator.py        # Orchestrator factory (~110 LOC)
+├── observability.py       # Langfuse integration (optional, ~150 LOC)
 ├── main.py                # Entry point with TODO (~190 LOC)
 ├── prompts/               # External prompt files
 │   ├── general_agent.txt  # Prompt for general agent
@@ -110,6 +117,56 @@ orchestrator = create_orchestrator(
 response = invoke_orchestrator(orchestrator, "Calculate 100 / 4 and explain Python")
 ```
 
+## Observability & Tracing
+
+This template includes optional Langfuse integration for tracing agent executions, tool calls, and LLM interactions.
+
+### Enable Tracing
+
+1. **Get Langfuse credentials** (choose one):
+   - **Cloud**: Sign up at [cloud.langfuse.com](https://cloud.langfuse.com)
+   - **Self-hosted**: Deploy Langfuse locally ([docs](https://langfuse.com/docs/deployment/self-host))
+
+2. **Configure in .env**:
+
+   ```bash
+   ENABLE_TRACING=true
+   LANGFUSE_PUBLIC_KEY=pk-lf-your-public-key
+   LANGFUSE_SECRET_KEY=sk-lf-your-secret-key
+   LANGFUSE_HOST=https://cloud.langfuse.com  # or your self-hosted URL
+   ```
+
+3. **Run your agents** - traces appear automatically in Langfuse dashboard
+
+### Disable Tracing
+
+Set in `.env`:
+
+```bash
+ENABLE_TRACING=false
+```
+
+Or remove Langfuse credentials entirely - the system gracefully degrades.
+
+### What Gets Traced
+
+- Agent invocations (general, math, custom agents)
+- Orchestrator routing decisions
+- Tool executions (calculator, text_analyzer, etc.)
+- LLM calls with prompts, completions, and token usage
+- Nested agent calls with proper parent-child relationships
+
+### View Traces
+
+Traces include:
+
+- Execution timeline and latency
+- Input/output for each step
+- Token usage and costs
+- Error tracking and debugging info
+
+Access the Langfuse dashboard at your `LANGFUSE_HOST` URL.
+
 ## Customization
 
 **Add a Tool** - Edit `tools.py`:
@@ -162,5 +219,6 @@ Then update `prompts/orchestrator.txt` to describe when to use it.
 - LangChain
 - LangChain Ollama (or other model provider)
 - python-dotenv
+- **Optional**: Langfuse (for observability)
 
 See `requirements.txt` for full list.

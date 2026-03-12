@@ -84,8 +84,14 @@ orchestrator = create_orchestrator(
 
 def main():
     """Main execution function."""
+    from observability import is_tracing_enabled
+
     print("=" * 70)
     print("AI Agent Orchestration Template")
+    if is_tracing_enabled():
+        print("[Observability] Langfuse tracing: ENABLED")
+    else:
+        print("[Observability] Langfuse tracing: DISABLED")
     print("=" * 70)
 
     # ========================================================================

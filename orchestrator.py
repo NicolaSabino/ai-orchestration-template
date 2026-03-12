@@ -47,7 +47,12 @@ def invoke_orchestrator(orchestrator, message: str) -> str:
     Returns:
         Orchestrator's response as string
     """
-    result = orchestrator.invoke({"messages": [HumanMessage(message)]})
+    from observability import get_callbacks
+
+    result = orchestrator.invoke(
+        {"messages": [HumanMessage(message)]},
+        config={"callbacks": get_callbacks()}
+    )
     return result["messages"][-1].content
 
 
@@ -93,7 +98,12 @@ def create_orchestrator(model, agents_dict):
             @langchain_tool
             def agent_tool(request: str) -> str:
                 f"""Route request to {name} agent for specialized processing."""
-                result = agent.invoke({"messages": [HumanMessage(request)]})
+                from observability import get_callbacks
+
+                result = agent.invoke(
+                    {"messages": [HumanMessage(request)]},
+                    config={"callbacks": get_callbacks()}
+                )
                 return result["messages"][-1].content
 
             # Set the tool name dynamically
