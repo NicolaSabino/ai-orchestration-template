@@ -440,10 +440,6 @@ IMPORTANT:
 - Phishing indicators are valid regardless of language
 """
 
-FOO_AGENT_PROMPT = """You are a helpful agent with access to the foo_command tool.
-
-When asked to execute foo commands, use the foo_command tool to process the input."""
-
 
 # ============================================================================
 # SECTION 3: CONFIGURATION
