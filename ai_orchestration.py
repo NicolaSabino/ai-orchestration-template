@@ -514,6 +514,7 @@ class DataManager:
         self._transactions = []  # List[Dict]
         self._users = {}  # {iban: Dict}
         self._users_by_name = {}  # {name: Dict} for biotag lookup
+        self._biotag_to_iban = {}  # {sender_id/biotag: sender_iban} built from transactions
         self._locations = []  # List[Dict] with biotag GPS data
         self._locations_by_biotag = {}  # {biotag: List[Dict]}
         self._mails = []  # List[Dict]
@@ -579,7 +580,14 @@ class DataManager:
 
                 self._transactions.append(row)
 
-        print(f"[DataManager] Loaded {len(self._transactions)} transactions")
+        # Build biotag-to-iban mapping from sender_id → sender_iban
+        for tx in self._transactions:
+            biotag = tx.get('sender_id')
+            iban = tx.get('sender_iban')
+            if biotag and iban and biotag not in self._biotag_to_iban:
+                self._biotag_to_iban[biotag] = iban
+
+        print(f"[DataManager] Loaded {len(self._transactions)} transactions, {len(self._biotag_to_iban)} biotag mappings")
         return self._transactions
 
     def load_users(self) -> Dict[str, Dict]:
@@ -789,6 +797,18 @@ class DataManager:
     def get_all_sms(self) -> List[Dict]:
         """Get all SMS."""
         return self._sms
+
+    def get_iban_for_biotag(self, biotag: str) -> Optional[str]:
+        """
+        Get IBAN for a user biotag (derived from transaction sender_id).
+
+        Args:
+            biotag: User biotag
+
+        Returns:
+            IBAN string or None if not found
+        """
+        return self._biotag_to_iban.get(biotag)
 
 
 def generate_session_id():
@@ -1029,22 +1049,16 @@ def query_fraud_memory(pattern_type: str = "all") -> str:
     """
     import json
 
-    # NOTE: This will be integrated with Alfonso's MemoryManager later
-    # For now, return a placeholder structure that demonstrates the interface
+    mem_mgr = MemoryManager.get_instance()
+    patterns = mem_mgr.query_patterns_by_type(pattern_type)
 
     result = {
         "pattern_type": pattern_type,
-        "patterns": [],
-        "message": "MemoryManager integration pending - will be connected to Alfonso's Task 8"
+        "pattern_count": len(patterns),
+        "patterns": [p.model_dump() for p in patterns]
     }
 
-    # Placeholder: In production, this would call:
-    # from memory_manager import MemoryManager
-    # mem_mgr = MemoryManager.get_instance()
-    # patterns = mem_mgr.load_fraud_patterns()
-    # Filter by pattern_type if not "all"
-
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, default=str)
 
 
 # Behavioral Profiler Tools
@@ -1065,27 +1079,44 @@ def get_user_communications(user_biotag: str, limit: int = 20) -> str:
 
     data_mgr = DataManager.get_instance()
 
-    # Get user by biotag (biotags are in format: XXXX-XXXX-XXX-CITY-N)
-    # We need to find the user first to get their email/phone
-    all_users = data_mgr.get_all_users()
+    # Step 1: biotag → iban via transaction sender_id mapping
+    user_iban = data_mgr.get_iban_for_biotag(user_biotag)
+    if not user_iban:
+        return json.dumps({
+            "user_biotag": user_biotag,
+            "communication_count": 0,
+            "communications": [],
+            "message": f"No IBAN found for biotag {user_biotag}"
+        })
 
-    # Search for user with matching biotag pattern or name
-    user = None
-    user_email = None
-    user_phone = None
+    # Step 2: iban → user profile
+    user = data_mgr.get_user(user_iban)
+    if not user:
+        return json.dumps({
+            "user_biotag": user_biotag,
+            "user_iban": user_iban,
+            "communication_count": 0,
+            "communications": [],
+            "message": "User profile not found"
+        })
 
-    # For now, return empty if we can't directly match
-    # In production, we'd need a biotag-to-user mapping
-    communications = []
+    # Step 3: Construct email as first.last@example.com
+    first = user.get('first_name', '').lower().replace(' ', '.')
+    last = user.get('last_name', '').lower().replace(' ', '.')
+    email = f"{first}.{last}@example.com"
+
+    # Step 4: Fetch communications by email
+    communications = data_mgr.get_user_communications(email)[:limit]
 
     result = {
         "user_biotag": user_biotag,
+        "user_iban": user_iban,
+        "email_searched": email,
         "communication_count": len(communications),
-        "communications": communications[:limit],
-        "message": "Note: Biotag-to-communication mapping requires user identification"
+        "communications": communications
     }
 
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, default=str)
 
 
 @tool
@@ -1150,23 +1181,21 @@ def get_user_baseline(user_iban: str) -> str:
     """
     import json
 
-    # NOTE: This will be integrated with Alfonso's MemoryManager later
-    # For now, return a placeholder structure
+    mem_mgr = MemoryManager.get_instance()
+    baseline = mem_mgr.get_user_baseline(user_iban)
 
-    result = {
+    if baseline is None:
+        return json.dumps({
+            "user_iban": user_iban,
+            "baseline_exists": False,
+            "baseline": None
+        })
+
+    return json.dumps({
         "user_iban": user_iban,
-        "baseline_exists": False,
-        "baseline": None,
-        "message": "MemoryManager integration pending - will be connected to Alfonso's Task 8"
-    }
-
-    # Placeholder: In production, this would call:
-    # from memory_manager import MemoryManager
-    # mem_mgr = MemoryManager.get_instance()
-    # baselines = mem_mgr.load_user_baselines()
-    # baseline = baselines.get(user_iban)
-
-    return json.dumps(result, indent=2)
+        "baseline_exists": True,
+        "baseline": baseline.model_dump()
+    }, indent=2, default=str)
 
 
 @tool
@@ -1656,24 +1685,71 @@ class MemoryManager:
         """
         baseline = self.get_user_baseline(user_id)
 
+        amount = float(transaction.get("amount", 0.0))
+        recipient = transaction.get("recipient_iban")
+        location = transaction.get("location")
+
+        # Extract hour from timestamp
+        hour = None
+        try:
+            ts_str = transaction.get("timestamp", "")
+            if ts_str:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                hour = ts.hour
+        except (ValueError, AttributeError):
+            pass
+
         if baseline is None:
             baseline = UserBehaviorBaseline(
                 user_id=user_id,
-                avg_transaction_amount=transaction.get("amount", 0),
+                avg_transaction_amount=amount,
                 std_transaction_amount=0.0,
-                typical_hours=[],
-                typical_recipients=[],
-                typical_locations=[],
+                typical_hours=[hour] if hour is not None else [],
+                typical_recipients=[recipient] if recipient else [],
+                typical_locations=[location] if location else [],
                 transaction_count=1,
                 last_updated=datetime.now().isoformat()
             )
         else:
-            # TODO: Implement incremental update logic
-            # - Update avg_transaction_amount (running average)
-            # - Update std_transaction_amount
-            # - Add to typical_hours, typical_recipients, typical_locations
-            baseline.transaction_count += 1
-            baseline.last_updated = datetime.now().isoformat()
+            n = baseline.transaction_count
+            # Welford's online algorithm for running mean and variance
+            new_avg = (baseline.avg_transaction_amount * n + amount) / (n + 1)
+            delta = amount - baseline.avg_transaction_amount
+            delta2 = amount - new_avg
+            new_variance = (baseline.std_transaction_amount ** 2 * n + delta * delta2) / (n + 1)
+            new_std = max(new_variance, 0.0) ** 0.5
+
+            # Update typical hours (unique, cap at 24)
+            hours = list(baseline.typical_hours)
+            if hour is not None and hour not in hours:
+                hours.append(hour)
+                if len(hours) > 24:
+                    hours = hours[-24:]
+
+            # Update typical recipients (unique, cap at 50)
+            recipients = list(baseline.typical_recipients)
+            if recipient and recipient not in recipients:
+                recipients.append(recipient)
+                if len(recipients) > 50:
+                    recipients = recipients[-50:]
+
+            # Update typical locations (unique, cap at 20)
+            locations = list(baseline.typical_locations)
+            if location and location not in locations:
+                locations.append(location)
+                if len(locations) > 20:
+                    locations = locations[-20:]
+
+            baseline = UserBehaviorBaseline(
+                user_id=user_id,
+                avg_transaction_amount=round(new_avg, 2),
+                std_transaction_amount=round(new_std, 2),
+                typical_hours=hours,
+                typical_recipients=recipients,
+                typical_locations=locations,
+                transaction_count=n + 1,
+                last_updated=datetime.now().isoformat()
+            )
 
         self.save_user_baseline(baseline)
 
@@ -1760,110 +1836,373 @@ class MemoryManager:
 
 
 # ============================================================================
-# SECTION 6.5: PROCESS LEVEL FUNCTION
+# SECTION 6.5: ORCHESTRATION & EXECUTION
 # ============================================================================
 
-def process_level(data_dir: str, session_id: str):
+def _parse_agent_result(result, expected_type):
     """
-    Process all transactions for a level.
+    Extract structured result from agent invocation.
+
+    Handles both direct Pydantic model output (when with_structured_output works)
+    and dict-with-messages output (fallback).
+    """
+    if isinstance(result, expected_type):
+        return result
+    if isinstance(result, dict) and "messages" in result:
+        last_msg = result["messages"][-1]
+        content = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
+        try:
+            data = json.loads(content)
+            return expected_type(**data)
+        except Exception:
+            pass
+    return None
+
+
+def analyze_transaction(
+    transaction: Dict,
+    session_id: str,
+    agents: Dict,
+    memory_mgr: "MemoryManager"
+) -> FraudDecision:
+    """
+    Orchestrate all 4 agents to produce a fraud decision for one transaction.
 
     Args:
-        data_dir: Data directory path
+        transaction: Transaction dict from CSV
         session_id: Langfuse session ID
+        agents: Dict with keys transaction/behavioral/geospatial/orchestrator
+        memory_mgr: MemoryManager instance
+
+    Returns:
+        FraudDecision with is_fraudulent, confidence, reasoning, etc.
     """
-    import json
+    transaction_id = transaction.get("transaction_id", "unknown")
+    sender_iban = transaction.get("sender_iban", "")
+    sender_id = transaction.get("sender_id", "")
+    recipient_iban = transaction.get("recipient_iban", "")
+    amount = transaction.get("amount", 0.0)
+    timestamp = transaction.get("timestamp", "")
+    location = transaction.get("location", "unknown")
+    description = transaction.get("description", "")
+    transaction_type = transaction.get("transaction_type", "")
 
+    # Load fraud patterns and decision threshold from memory
+    patterns = memory_mgr.load_fraud_patterns()
+    learning_state = memory_mgr.load_learning_state()
+    threshold = learning_state.decision_threshold
+
+    langfuse_handler = CallbackHandler()
+    config = {
+        "callbacks": [langfuse_handler],
+        "metadata": {"session_id": session_id},
+        "run_name": f"fraud_{transaction_id[:8]}"
+    }
+
+    # ── 1. Transaction Analyzer ──────────────────────────────────────────────
+    txn_query = (
+        f"Analyze transaction {transaction_id} for fraud indicators.\n"
+        f"Sender IBAN: {sender_iban}\n"
+        f"Sender ID (biotag): {sender_id}\n"
+        f"Recipient IBAN: {recipient_iban}\n"
+        f"Amount: {amount}\n"
+        f"Timestamp: {timestamp}\n"
+        f"Location: {location}\n"
+        f"Description: {description}\n"
+        f"Type: {transaction_type}\n\n"
+        f"Use your tools to fetch transaction history, calculate velocity, check the recipient profile, "
+        f"and query fraud patterns in memory. Then return your structured analysis."
+    )
+
+    txn_analysis = None
+    try:
+        result = agents["transaction"].invoke(
+            {"messages": [HumanMessage(txn_query)]}, config=config
+        )
+        txn_analysis = _parse_agent_result(result, TransactionAnalysisResult)
+    except Exception as e:
+        print(f"  [Warning] Transaction analyzer error: {e}")
+
+    if txn_analysis is None:
+        txn_analysis = TransactionAnalysisResult(
+            transaction_id=transaction_id,
+            risk_level=RiskLevel.MEDIUM,
+            anomaly_scores=TransactionAnomalyScore(
+                amount_anomaly=0.5, frequency_anomaly=0.5,
+                timing_anomaly=0.5, recipient_anomaly=0.5, velocity_anomaly=0.5
+            ),
+            risk_score=0.5,
+            suspicious_indicators=["Agent analysis unavailable"],
+            reasoning="Transaction analyzer did not return a structured result",
+            confidence=0.3
+        )
+
+    # ── 2. Behavioral Profiler ───────────────────────────────────────────────
+    behav_query = (
+        f"Analyze behavioral risk for transaction {transaction_id}.\n"
+        f"User IBAN: {sender_iban}\n"
+        f"User Biotag: {sender_id}\n"
+        f"Transaction Amount: {amount}\n"
+        f"Timestamp: {timestamp}\n"
+        f"Recipient: {recipient_iban}\n\n"
+        f"Use your tools to get the user's communications (check for phishing), their profile, "
+        f"and their behavioral baseline. Return your structured behavioral analysis."
+    )
+
+    behav_analysis = None
+    try:
+        result = agents["behavioral"].invoke(
+            {"messages": [HumanMessage(behav_query)]}, config=config
+        )
+        behav_analysis = _parse_agent_result(result, BehavioralAnomalyResult)
+    except Exception as e:
+        print(f"  [Warning] Behavioral profiler error: {e}")
+
+    if behav_analysis is None:
+        behav_analysis = BehavioralAnomalyResult(
+            transaction_id=transaction_id,
+            risk_level=RiskLevel.MEDIUM,
+            risk_score=0.5,
+            deviations=["Agent analysis unavailable"],
+            phishing_indicators=[],
+            profile_match_score=0.5,
+            reasoning="Behavioral profiler did not return a structured result",
+            confidence=0.3
+        )
+
+    # ── 3. Geospatial Analyzer ───────────────────────────────────────────────
+    geo_query = (
+        f"Analyze geospatial risk for transaction {transaction_id}.\n"
+        f"User IBAN: {sender_iban}\n"
+        f"User Biotag: {sender_id}\n"
+        f"Transaction Location: {location}\n"
+        f"Timestamp: {timestamp}\n\n"
+        f"Use your tools to get GPS history, calculate distances, check for impossible travel, "
+        f"and compare with the user's residence. Return your structured geospatial analysis."
+    )
+
+    geo_analysis = None
+    try:
+        result = agents["geospatial"].invoke(
+            {"messages": [HumanMessage(geo_query)]}, config=config
+        )
+        geo_analysis = _parse_agent_result(result, GeospatialAnalysisResult)
+    except Exception as e:
+        print(f"  [Warning] Geospatial analyzer error: {e}")
+
+    if geo_analysis is None:
+        geo_analysis = GeospatialAnalysisResult(
+            transaction_id=transaction_id,
+            risk_level=RiskLevel.MEDIUM,
+            risk_score=0.5,
+            impossible_travel_detected=False,
+            distance_from_last_location_km=None,
+            time_since_last_location_hours=None,
+            location_anomalies=["Agent analysis unavailable"],
+            reasoning="Geospatial analyzer did not return a structured result",
+            confidence=0.3
+        )
+
+    # ── 4. Fraud Orchestrator ────────────────────────────────────────────────
+    patterns_summary = [
+        {
+            "type": p.pattern_type,
+            "description": p.description,
+            "occurrences": p.occurrences,
+            "success_rate": p.success_rate
+        }
+        for p in patterns[:10]
+    ]
+
+    orch_query = (
+        f"Make the final fraud decision for transaction {transaction_id}.\n\n"
+        f"TRANSACTION ANALYSIS:\n{json.dumps(txn_analysis.model_dump(), indent=2, default=str)}\n\n"
+        f"BEHAVIORAL ANALYSIS:\n{json.dumps(behav_analysis.model_dump(), indent=2, default=str)}\n\n"
+        f"GEOSPATIAL ANALYSIS:\n{json.dumps(geo_analysis.model_dump(), indent=2, default=str)}\n\n"
+        f"KNOWN FRAUD PATTERNS ({len(patterns)} in memory):\n{json.dumps(patterns_summary, indent=2)}\n\n"
+        f"DECISION THRESHOLD: {threshold}\n\n"
+        f"Synthesize all evidence and return your structured FraudDecision."
+    )
+
+    decision = None
+    try:
+        result = agents["orchestrator"].invoke(
+            {"messages": [HumanMessage(orch_query)]}, config=config
+        )
+        decision = _parse_agent_result(result, FraudDecision)
+    except Exception as e:
+        print(f"  [Warning] Fraud orchestrator error: {e}")
+
+    if decision is None:
+        # Fallback: rule-based average risk
+        avg_risk = (txn_analysis.risk_score + behav_analysis.risk_score + geo_analysis.risk_score) / 3
+        is_fraud = avg_risk >= threshold
+        decision = FraudDecision(
+            transaction_id=transaction_id,
+            is_fraudulent=is_fraud,
+            confidence=0.4,
+            risk_score=round(avg_risk, 3),
+            primary_reasons=[f"Fallback: avg risk {avg_risk:.2f} >= threshold {threshold}"] if is_fraud
+                            else [f"Fallback: avg risk {avg_risk:.2f} < threshold {threshold}"],
+            evidence=[],
+            reasoning=f"Orchestrator unavailable. Fallback rule: average risk {avg_risk:.2f} vs threshold {threshold}.",
+            pattern_matches=[]
+        )
+
+    # ── 5. Update memory ─────────────────────────────────────────────────────
+    memory_mgr.update_user_baseline(sender_iban, transaction)
+
+    if decision.is_fraudulent:
+        pattern = FraudPattern(
+            pattern_id=str(ulid.new().str),
+            pattern_type="detected_fraud",
+            description=", ".join(decision.primary_reasons[:2]) if decision.primary_reasons else "Unknown fraud",
+            features={
+                "transaction_risk": txn_analysis.risk_score,
+                "behavioral_risk": behav_analysis.risk_score,
+                "geospatial_risk": geo_analysis.risk_score,
+                "amount": amount,
+                "impossible_travel": geo_analysis.impossible_travel_detected,
+                "phishing_detected": len(behav_analysis.phishing_indicators) > 0,
+            },
+            success_rate=decision.confidence,
+            occurrences=1,
+            level_discovered=learning_state.current_level,
+            discovered_at=datetime.now().isoformat(),
+            last_seen=datetime.now().isoformat()
+        )
+        memory_mgr.save_fraud_pattern(pattern)
+
+    return decision
+
+
+def process_level(level: int, data_dir: str, session_id: str, memory_dir: str = "memory", output_file: Optional[str] = None):
+    """
+    Process all transactions for a given challenge level.
+
+    Args:
+        level: Challenge level (1-5)
+        data_dir: Data directory path (contains public/ subfolder)
+        session_id: Langfuse session ID
+        memory_dir: Memory directory for JSON persistence
+        output_file: Output file path (default: level_{level}_output.txt)
+    """
     print("=" * 70)
-    print("Fraud Detection System - Transaction Processing")
+    print(f"Fraud Detection System - Level {level}")
     print("=" * 70)
 
-    # Load data
+    # ── Load data ─────────────────────────────────────────────────────────────
     print(f"\n[Data] Loading data from: {data_dir}")
     data_mgr = DataManager.get_instance(data_dir)
     data_mgr.load_all_data()
     transactions = data_mgr.get_transactions()
-
     print(f"[Data] Loaded {len(transactions)} transactions")
 
     if not transactions:
         print("[Error] No transactions found. Exiting.")
         return
 
-    # TODO: When Laura completes Task 7 (Agent factories), uncomment this:
-    # print("\n[Agents] Creating specialized fraud detection agents...")
-    # model = ChatOpenAI(
-    #     api_key=OPENROUTER_API_KEY,
-    #     base_url=OPENROUTER_BASE_URL,
-    #     model=OPENROUTER_MODEL,
-    #     temperature=TEMPERATURE
-    # )
-    #
-    # agents = {
-    #     "transaction": create_transaction_analyzer_agent(model),
-    #     "behavioral": create_behavioral_profiler_agent(model),
-    #     "geospatial": create_geospatial_analyzer_agent(model),
-    #     "orchestrator": create_fraud_orchestrator_agent(model)
-    # }
+    # ── Initialize memory ────────────────────────────────────────────────────
+    print(f"\n[Memory] Initializing memory from: {memory_dir}")
+    memory_mgr = MemoryManager.get_instance(memory_dir)
+    learning_state = memory_mgr.load_learning_state()
+    learning_state.current_level = level
+    memory_mgr.save_learning_state(learning_state)
+    print(f"[Memory] Patterns: {learning_state.fraud_patterns_count}, "
+          f"Baselines: {learning_state.user_baselines_count}, "
+          f"Threshold: {learning_state.decision_threshold}")
 
-    # Process transactions (placeholder until Task 10 is ready)
-    print("\n[Processing] Analyzing transactions...")
+    # ── Create agents ────────────────────────────────────────────────────────
+    print("\n[Agents] Creating fraud detection agents...")
+    model = ChatOpenAI(
+        api_key=OPENROUTER_API_KEY,
+        base_url=OPENROUTER_BASE_URL,
+        model=OPENROUTER_MODEL,
+        temperature=0.1
+    )
+
+    agents = {
+        "transaction": create_transaction_analyzer_agent(model),
+        "behavioral": create_behavioral_profiler_agent(model),
+        "geospatial": create_geospatial_analyzer_agent(model),
+        "orchestrator": create_fraud_orchestrator_agent(model)
+    }
+    print("[Agents] All 4 agents ready")
+
+    # ── Process transactions ─────────────────────────────────────────────────
+    print(f"\n[Processing] Analyzing {len(transactions)} transactions...")
     print("-" * 70)
 
-    results = []
+    decisions = []
     for i, transaction in enumerate(transactions, 1):
-        print(f"\n[{i}/{len(transactions)}] Transaction {transaction.get('transaction_id', 'unknown')[:8]}...")
+        txn_id = transaction.get("transaction_id", "unknown")
+        print(f"\n[{i}/{len(transactions)}] {txn_id[:8]}... "
+              f"amount={transaction.get('amount', 0):.2f}")
 
-        # Placeholder decision until Task 10 (analyze_transaction) is ready
-        # In production, this will call: analyze_transaction(transaction, session_id, agents)
+        try:
+            decision = analyze_transaction(transaction, session_id, agents, memory_mgr)
+            decisions.append(decision)
+            fraud_tag = "FRAUD" if decision.is_fraudulent else "LEGIT"
+            print(f"  -> {fraud_tag} (risk={decision.risk_score:.2f}, conf={decision.confidence:.2f})")
+        except Exception as e:
+            print(f"  -> ERROR: {e}")
+            # Safe fallback: mark as not fraudulent to avoid excessive FP
+            decisions.append(FraudDecision(
+                transaction_id=txn_id,
+                is_fraudulent=False,
+                confidence=0.0,
+                risk_score=0.0,
+                primary_reasons=["Processing error"],
+                evidence=[],
+                reasoning=f"Error during analysis: {e}",
+                pattern_matches=[]
+            ))
 
-        # For now, create a dummy decision
-        decision = {
-            "transaction_id": transaction.get('transaction_id'),
-            "is_fraudulent": False,  # Placeholder
-            "confidence": 0.5,  # Placeholder
-            "risk_score": 0.3,  # Placeholder
-            "primary_reasons": ["Analysis pending - agents not yet integrated"],
-            "evidence": [],
-            "reasoning": "Placeholder decision: Agent orchestration (Task 10) not yet implemented. "
-                        "This will be replaced with actual fraud analysis once Laura completes Task 7 "
-                        "(agent factories) and Task 10 (analyze_transaction) is implemented.",
-            "pattern_matches": []
-        }
+    # ── Save outputs ─────────────────────────────────────────────────────────
+    fraudulent_ids = [d.transaction_id for d in decisions if d.is_fraudulent]
 
-        results.append(decision)
+    # Primary output: one fraud ID per line (challenge submission format)
+    if output_file is None:
+        output_file = f"level_{level}_output.txt"
 
-        fraud_status = "🔴 FRAUD" if decision['is_fraudulent'] else "🟢 LEGIT"
-        print(f"  Status: {fraud_status} (confidence: {decision['confidence']:.2f})")
+    with open(output_file, "w") as f:
+        for txn_id in fraudulent_ids:
+            f.write(f"{txn_id}\n")
+    print(f"\n[Output] Fraud IDs saved to: {output_file}")
 
-    # Save results to JSONL
-    output_file = "fraud_detection_results.jsonl"
-    print(f"\n[Output] Saving results to: {output_file}")
+    # Secondary output: full JSONL for debugging
+    jsonl_file = f"level_{level}_results.jsonl"
+    with open(jsonl_file, "w") as f:
+        for d in decisions:
+            f.write(json.dumps(d.model_dump(), default=str) + "\n")
+    print(f"[Output] Full results saved to: {jsonl_file}")
 
-    with open(output_file, 'w') as f:
-        for result in results:
-            f.write(json.dumps(result) + '\n')
+    # ── Update learning state ─────────────────────────────────────────────────
+    memory_mgr.update_learning_state(
+        transactions_analyzed=len(decisions),
+        frauds_detected=len(fraudulent_ids)
+    )
 
-    # Print statistics
+    # ── Print statistics ──────────────────────────────────────────────────────
+    fraud_rate = (len(fraudulent_ids) / len(decisions) * 100) if decisions else 0
+    avg_confidence = (sum(d.confidence for d in decisions) / len(decisions)) if decisions else 0
+    avg_risk = (sum(d.risk_score for d in decisions) / len(decisions)) if decisions else 0
+
     print("\n" + "=" * 70)
-    print("Processing Complete!")
+    print(f"Level {level} Complete!")
     print("=" * 70)
+    print(f"  Total transactions : {len(decisions)}")
+    print(f"  Frauds detected    : {len(fraudulent_ids)} ({fraud_rate:.1f}%)")
+    print(f"  Avg confidence     : {avg_confidence:.3f}")
+    print(f"  Avg risk score     : {avg_risk:.3f}")
+    stats = memory_mgr.get_statistics()
+    print(f"  Memory patterns    : {stats['fraud_patterns']}")
+    print(f"  User baselines     : {stats['user_baselines']}")
 
-    fraud_count = sum(1 for r in results if r['is_fraudulent'])
-    fraud_rate = (fraud_count / len(results) * 100) if results else 0
-    avg_confidence = (sum(r['confidence'] for r in results) / len(results)) if results else 0
+    if fraud_rate < 5 or fraud_rate > 95:
+        print(f"\n  [Warning] Fraud rate {fraud_rate:.1f}% may be outside expected range (5-95%)")
 
-    print(f"\n[Stats] Total transactions: {len(results)}")
-    print(f"[Stats] Frauds detected: {fraud_count} ({fraud_rate:.1f}%)")
-    print(f"[Stats] Average confidence: {avg_confidence:.2f}")
-    print(f"[Stats] Output file: {output_file}")
-
-    print("\n[Note] This is a placeholder implementation.")
-    print("[Note] Full fraud detection will be available after:")
-    print("       - Task 7 (Laura): Agent factories")
-    print("       - Task 8 (Alfonso): MemoryManager")
-    print("       - Task 10 (Nicola): analyze_transaction orchestration")
-
-    print("\n" + "=" * 70)
+    print("=" * 70)
 
 
 # ============================================================================
@@ -2066,8 +2405,9 @@ Examples:
         "--level",
         type=int,
         choices=[1, 2, 3, 4, 5],
-        required=True,
-        help="Challenge level to process (1-5)"
+        required=False,
+        default=None,
+        help="Challenge level to process (1-5). Required unless --test-connectivity is set."
     )
 
     parser.add_argument(
@@ -2143,7 +2483,12 @@ def main():
         return
 
     # Mode 2: Process fraud detection data
-    print(f"\n[Mode] Fraud Detection Processing")
+    if args.level is None:
+        print("\n[Error] --level is required when not using --test-connectivity")
+        print("  Usage: python ai_orchestration.py --level 1 --data-dir ./data")
+        return
+
+    print(f"\n[Mode] Fraud Detection Processing - Level {args.level}")
 
     # Run connectivity test first
     print("\n[Step 1/2] Testing connectivity...")
@@ -2153,7 +2498,13 @@ def main():
 
     # Process the level
     print("\n[Step 2/2] Processing transactions...")
-    process_level(args.data_dir, session_id)
+    process_level(
+        level=args.level,
+        data_dir=args.data_dir,
+        session_id=session_id,
+        memory_dir=args.memory_dir,
+        output_file=args.output
+    )
 
     # Flush Langfuse traces
     langfuse_client.flush()
