@@ -1,0 +1,72 @@
+[
+  {
+    "first_name": "Elizabeth",
+    "last_name": "White",
+    "birth_year": 1998,
+    "salary": 37400,
+    "job": "Retired",
+    "iban": "US21O5655698930111181392105",
+    "residence": {
+      "city": "Washington",
+      "lat": "38.9047",
+      "lng": "-77.0163"
+    },
+    "description": "Elizabeth White, born in 1998, is a retired homemaker living in Washington who, at eighty-nine, keeps a steady, practical rhythm to her days—managing a modest $37,400 annual pension, tending her home and neighborhood ties, taking two trips a year that can be anything from a weekend to a long-haul flight and alternate between quiet towns and sprawling cities, walking familiar streets and parks in the mornings, staying curiously engaged online (sometimes falling for flashy offers and close calls with phishing), and otherwise preferring tried-and-true routines that let her remain independent in the city she calls home."
+  },
+  {
+    "first_name": "Ryan",
+    "last_name": "Fox",
+    "birth_year": 2003,
+    "salary": 34500,
+    "job": "Retired",
+    "iban": "US34D8467364103827609628734",
+    "residence": {
+      "city": "Des Moines",
+      "lat": "41.5725",
+      "lng": "-93.6105"
+    },
+    "description": "Ryan Fox is an 84-year-old retired homemaker living in Des Moines, Iowa, eking out a modest $34,500 a year in retirement; after decades spent running a household he now fills his days tending a small yard, cooking from recipes passed down in the family, volunteering at the neighborhood center and trading stories with old neighbors, and he still makes one longer trip a year—usually to visit relatives or to see a city he’s only heard about, sometimes traveling surprisingly far—he’s comfortable enough with online tools to keep in touch but admits he can be trusting with emails and has clicked on dubious links before, so friends and the local community often help him stay organized and protected."
+  },
+  {
+    "first_name": "Denise",
+    "last_name": "Bousquet",
+    "birth_year": 2033,
+    "salary": 35900,
+    "job": "Restaurant Owner",
+    "iban": "FR62S8154009917998374978837",
+    "residence": {
+      "city": "Paris",
+      "lat": "48.8567",
+      "lng": "2.3522"
+    },
+    "description": "Denise Bousquet, née en 2033 et installée à Paris depuis toujours, tient un petit restaurant de quartier qui fonctionne à la force du poignet et des habitudes: elle connaît ses habitués, négocie directement avec des fournisseurs locaux et passe plus de temps en cuisine ou à dresser des tables qu'à comptabiliser les marges — son revenu annuel tourne autour de 35 900 €, assez pour maintenir l'établissement mais qui l'oblige à des choix mesurés et à un sens pratique aigu; elle voyage environ trois fois par an, parfois pour un week-end à quelques heures de la capitale, parfois pour de longs trajets jusqu'à quinze mille kilomètres, visitant des lieux aussi variés que des bourgades d'un millier d'habitants ou des métropoles de plusieurs millions, et ces escapades lui servent autant d'inspiration culinaire que d'échappatoire; dans la vie numérique elle reste pragmatique mais pas toujours vigilante — ses habitudes en font une personne au risque moyen de tomber dans des tentatives d'hameçonnage — et dans la rue comme dans sa salle, Denise impose par sa constance, sa franchise et une énergie discrète qui font d'elle une figure familière du quartier."
+  },
+  {
+    "first_name": "Hanne-Lore",
+    "last_name": "Weimer",
+    "birth_year": 2057,
+    "salary": 7200,
+    "job": "Student",
+    "iban": "DE14Z3311879692123924005659",
+    "residence": {
+      "city": "Ober-Ramstadt",
+      "lat": "49.8333",
+      "lng": "8.7500"
+    },
+    "description": "Hanne-Lore Weimer, geboren 2057 und damit 30 Jahre alt, lebt in Ober-Ramstadt und studiert an einer Universität in der Region; mit einem Einkommen von rund 7.200 Euro bringt sie Studium und Alltag unter einen Hut und plant trotzdem jedes Jahr eine größere Reise — mal zu kleinen Orten, mal in Metropolen, die bis zu 15.000 Kilometer entfernt sein können — sodass sie zwischen dem vertrauten Kleinstadtleben und sporadischen Fernaufenthalten balanciert; zuhause schätzt sie die ruhigen Morgen und die kurzen Wege, sie ist praktisch und zielorientiert, zugleich aber online nicht immer misstrauisch genug, sodass Phishing-Nachrichten sie gelegentlich täuschen und sie deshalb zunehmend vorsichtiger mit digitalen Nachrichten umgeht."
+  },
+  {
+    "first_name": "Noël",
+    "last_name": "Boutin",
+    "birth_year": 2001,
+    "salary": 37200,
+    "job": "Retired",
+    "iban": "FR06A1254311135512204987433",
+    "residence": {
+      "city": "Paris",
+      "lat": "48.8567",
+      "lng": "2.3522"
+    },
+    "description": "Noël Boutin, né en 2001 et âgé de 86 ans en 2087, habite à Paris; retraité et ancien homme au foyer, il partage ses journées entre les petites tâches domestiques, les promenades dans les quartiers centraux et les visites chez ses voisins, vivant avec une pension d'environ 37 200 € par an. Deux fois par an il part en voyage — parfois de courtes escapades autour de la métropole, parfois des liaisons lointaines qui peuvent l'emmener jusqu'à 15 000 km — appréciant autant les villages calmes que les grandes cités de plusieurs millions d'habitants. Sociable et attaché aux échanges en personne, il reste néanmoins parfois trop confiant face aux sollicitations numériques (il clique à peu près une fois sur deux), et il a aménagé son appartement parisien pour y cultiver des routines tranquilles, un cercle d'amis fidèles et une curiosité discrète pour les nouveaux itinéraires qu'il découvre."
+  }
+]
