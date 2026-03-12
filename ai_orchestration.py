@@ -601,6 +601,658 @@ def run_agent_with_tracking(agent, query, session_id):
 # SECTION 5: TOOLS
 # ============================================================================
 
+# Transaction Analyzer Tools
+
+@tool
+def get_user_transaction_history(user_iban: str, limit: int = 50) -> str:
+    """
+    Get transaction history for a user.
+
+    Args:
+        user_iban: User IBAN to query
+        limit: Max number of transactions to return (default: 50)
+
+    Returns:
+        JSON string with transaction history
+    """
+    import json
+    from datetime import datetime
+
+    data_mgr = DataManager.get_instance()
+    all_transactions = data_mgr.get_transactions()
+
+    # Filter transactions where user is the sender
+    user_transactions = [
+        tx for tx in all_transactions
+        if tx.get('sender_iban') == user_iban
+    ]
+
+    # Sort by timestamp (most recent first)
+    user_transactions.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+
+    # Limit results
+    user_transactions = user_transactions[:limit]
+
+    result = {
+        "user_iban": user_iban,
+        "transaction_count": len(user_transactions),
+        "transactions": user_transactions
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def calculate_transaction_velocity(user_iban: str, time_window_hours: int = 24) -> str:
+    """
+    Calculate transaction velocity for a user.
+
+    Args:
+        user_iban: User IBAN
+        time_window_hours: Time window in hours (default: 24)
+
+    Returns:
+        JSON with velocity metrics: {count, total_amount, avg_amount, max_amount}
+    """
+    import json
+    from datetime import datetime, timedelta
+
+    data_mgr = DataManager.get_instance()
+    all_transactions = data_mgr.get_transactions()
+
+    # Filter transactions by user
+    user_transactions = [
+        tx for tx in all_transactions
+        if tx.get('sender_iban') == user_iban
+    ]
+
+    if not user_transactions:
+        return json.dumps({
+            "user_iban": user_iban,
+            "time_window_hours": time_window_hours,
+            "count": 0,
+            "total_amount": 0.0,
+            "avg_amount": 0.0,
+            "max_amount": 0.0,
+            "message": "No transactions found for this user"
+        })
+
+    # Find most recent transaction timestamp
+    timestamps = [
+        datetime.fromisoformat(tx.get('timestamp', '').replace('Z', '+00:00'))
+        for tx in user_transactions
+        if tx.get('timestamp')
+    ]
+
+    if not timestamps:
+        return json.dumps({
+            "user_iban": user_iban,
+            "time_window_hours": time_window_hours,
+            "count": 0,
+            "total_amount": 0.0,
+            "avg_amount": 0.0,
+            "max_amount": 0.0,
+            "message": "No valid timestamps found"
+        })
+
+    most_recent = max(timestamps)
+    cutoff_time = most_recent - timedelta(hours=time_window_hours)
+
+    # Filter transactions within time window
+    recent_transactions = []
+    for tx in user_transactions:
+        try:
+            tx_time = datetime.fromisoformat(tx.get('timestamp', '').replace('Z', '+00:00'))
+            if tx_time >= cutoff_time:
+                recent_transactions.append(tx)
+        except (ValueError, AttributeError):
+            continue
+
+    # Calculate metrics
+    amounts = [tx.get('amount', 0.0) for tx in recent_transactions]
+    total_amount = sum(amounts)
+    count = len(recent_transactions)
+    avg_amount = total_amount / count if count > 0 else 0.0
+    max_amount = max(amounts) if amounts else 0.0
+
+    result = {
+        "user_iban": user_iban,
+        "time_window_hours": time_window_hours,
+        "count": count,
+        "total_amount": round(total_amount, 2),
+        "avg_amount": round(avg_amount, 2),
+        "max_amount": round(max_amount, 2),
+        "most_recent_timestamp": most_recent.isoformat()
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def get_recipient_profile(recipient_iban: str) -> str:
+    """
+    Get profile of recipient IBAN.
+
+    Args:
+        recipient_iban: Recipient IBAN
+
+    Returns:
+        JSON with recipient info and statistics
+    """
+    import json
+
+    data_mgr = DataManager.get_instance()
+
+    # Get user info if recipient is a registered user
+    user = data_mgr.get_user(recipient_iban)
+
+    # Count transactions to this recipient
+    all_transactions = data_mgr.get_transactions()
+    incoming_transactions = [
+        tx for tx in all_transactions
+        if tx.get('recipient_iban') == recipient_iban
+    ]
+
+    # Get unique senders
+    unique_senders = set(tx.get('sender_iban') for tx in incoming_transactions if tx.get('sender_iban'))
+
+    # Calculate statistics
+    amounts = [tx.get('amount', 0.0) for tx in incoming_transactions]
+    total_received = sum(amounts)
+    avg_received = total_received / len(amounts) if amounts else 0.0
+    max_received = max(amounts) if amounts else 0.0
+
+    result = {
+        "recipient_iban": recipient_iban,
+        "is_registered_user": user is not None,
+        "user_info": {
+            "name": f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() if user else None,
+            "job": user.get('job') if user else None,
+            "birth_year": user.get('birth_year') if user else None,
+            "residence": user.get('residence') if user else None
+        } if user else None,
+        "transaction_statistics": {
+            "total_received_count": len(incoming_transactions),
+            "unique_senders_count": len(unique_senders),
+            "total_amount_received": round(total_received, 2),
+            "avg_amount_received": round(avg_received, 2),
+            "max_amount_received": round(max_received, 2)
+        }
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def query_fraud_memory(pattern_type: str = "all") -> str:
+    """
+    Query fraud patterns from memory.
+
+    Args:
+        pattern_type: Type of pattern to query ("all", "behavioral", "geospatial", "transaction")
+
+    Returns:
+        JSON string with matching fraud patterns
+    """
+    import json
+
+    # NOTE: This will be integrated with Alfonso's MemoryManager later
+    # For now, return a placeholder structure that demonstrates the interface
+
+    result = {
+        "pattern_type": pattern_type,
+        "patterns": [],
+        "message": "MemoryManager integration pending - will be connected to Alfonso's Task 8"
+    }
+
+    # Placeholder: In production, this would call:
+    # from memory_manager import MemoryManager
+    # mem_mgr = MemoryManager.get_instance()
+    # patterns = mem_mgr.load_fraud_patterns()
+    # Filter by pattern_type if not "all"
+
+    return json.dumps(result, indent=2)
+
+
+# Behavioral Profiler Tools
+
+@tool
+def get_user_communications(user_biotag: str, limit: int = 20) -> str:
+    """
+    Get recent communications for a user.
+
+    Args:
+        user_biotag: User biotag
+        limit: Max communications to return (default: 20)
+
+    Returns:
+        JSON string with communications
+    """
+    import json
+
+    data_mgr = DataManager.get_instance()
+
+    # Get user by biotag (biotags are in format: XXXX-XXXX-XXX-CITY-N)
+    # We need to find the user first to get their email/phone
+    all_users = data_mgr.get_all_users()
+
+    # Search for user with matching biotag pattern or name
+    user = None
+    user_email = None
+    user_phone = None
+
+    # For now, return empty if we can't directly match
+    # In production, we'd need a biotag-to-user mapping
+    communications = []
+
+    result = {
+        "user_biotag": user_biotag,
+        "communication_count": len(communications),
+        "communications": communications[:limit],
+        "message": "Note: Biotag-to-communication mapping requires user identification"
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def get_user_profile(user_iban: str) -> str:
+    """
+    Get user profile information.
+
+    Args:
+        user_iban: User IBAN
+
+    Returns:
+        JSON with user profile (name, age, location, etc.)
+    """
+    import json
+    from datetime import datetime
+
+    data_mgr = DataManager.get_instance()
+    user = data_mgr.get_user(user_iban)
+
+    if not user:
+        return json.dumps({
+            "user_iban": user_iban,
+            "found": False,
+            "message": "User not found"
+        })
+
+    # Calculate age if birth_year is available
+    age = None
+    if user.get('birth_year'):
+        current_year = datetime.now().year
+        age = current_year - user.get('birth_year')
+
+    result = {
+        "user_iban": user_iban,
+        "found": True,
+        "profile": {
+            "first_name": user.get('first_name'),
+            "last_name": user.get('last_name'),
+            "full_name": f"{user.get('first_name', '')} {user.get('last_name', '')}".strip(),
+            "birth_year": user.get('birth_year'),
+            "age": age,
+            "job": user.get('job'),
+            "salary": user.get('salary'),
+            "residence": user.get('residence'),
+            "description": user.get('description')
+        }
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def get_user_baseline(user_iban: str) -> str:
+    """
+    Get behavioral baseline for a user from memory.
+
+    Args:
+        user_iban: User IBAN
+
+    Returns:
+        JSON with user baseline or "null" if not exists
+    """
+    import json
+
+    # NOTE: This will be integrated with Alfonso's MemoryManager later
+    # For now, return a placeholder structure
+
+    result = {
+        "user_iban": user_iban,
+        "baseline_exists": False,
+        "baseline": None,
+        "message": "MemoryManager integration pending - will be connected to Alfonso's Task 8"
+    }
+
+    # Placeholder: In production, this would call:
+    # from memory_manager import MemoryManager
+    # mem_mgr = MemoryManager.get_instance()
+    # baselines = mem_mgr.load_user_baselines()
+    # baseline = baselines.get(user_iban)
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def detect_phishing_patterns(communication_text: str) -> str:
+    """
+    Detect phishing patterns in communication text.
+
+    Args:
+        communication_text: Text to analyze
+
+    Returns:
+        JSON with detected patterns: {has_urgency, has_threat, has_link, score}
+    """
+    import json
+    import re
+
+    # Define phishing indicators
+    urgency_keywords = [
+        "urgente", "urgent", "immediately", "subito", "ora", "now",
+        "entro", "scadenza", "expir", "deadline", "ultima chance",
+        "last chance", "act now", "limited time"
+    ]
+
+    threat_keywords = [
+        "bloccare", "block", "suspend", "chiudere", "close",
+        "terminare", "terminate", "cancellare", "cancel",
+        "penalt", "multa", "fine", "legal action", "azione legale"
+    ]
+
+    action_keywords = [
+        "clicca", "click", "conferma", "confirm", "verifica", "verify",
+        "aggiorna", "update", "scarica", "download", "installa", "install"
+    ]
+
+    suspicious_phrases = [
+        "conferma i tuoi dati", "verify your account", "unusual activity",
+        "attività sospetta", "urgent action required", "azione richiesta",
+        "account will be closed", "il tuo account", "your account"
+    ]
+
+    # Convert to lowercase for matching
+    text_lower = communication_text.lower()
+
+    # Check for indicators
+    has_urgency = any(keyword in text_lower for keyword in urgency_keywords)
+    has_threat = any(keyword in text_lower for keyword in threat_keywords)
+    has_action = any(keyword in text_lower for keyword in action_keywords)
+    has_suspicious = any(phrase in text_lower for phrase in suspicious_phrases)
+
+    # Check for URLs (potential phishing links)
+    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+    urls = re.findall(url_pattern, communication_text)
+    has_link = len(urls) > 0
+
+    # Check for suspicious domains
+    suspicious_domains = [
+        'paypa1', 'amaz0n', 'g00gle', 'microsof1', 'app1e',
+        'bank-secure', 'verify-account', 'secure-login',
+        '.net/', '.org/', 'bit.ly', 'tinyurl'
+    ]
+    suspicious_urls = [
+        url for url in urls
+        if any(domain in url.lower() for domain in suspicious_domains)
+    ]
+
+    # Calculate phishing score (0-1)
+    score = 0.0
+    if has_urgency:
+        score += 0.2
+    if has_threat:
+        score += 0.25
+    if has_action:
+        score += 0.15
+    if has_suspicious:
+        score += 0.2
+    if suspicious_urls:
+        score += 0.3
+    elif has_link:
+        score += 0.1
+
+    score = min(score, 1.0)  # Cap at 1.0
+
+    result = {
+        "has_urgency": has_urgency,
+        "has_threat": has_threat,
+        "has_action_request": has_action,
+        "has_suspicious_phrases": has_suspicious,
+        "has_link": has_link,
+        "link_count": len(urls),
+        "suspicious_urls": suspicious_urls,
+        "phishing_score": round(score, 2),
+        "risk_level": "HIGH" if score >= 0.7 else "MEDIUM" if score >= 0.4 else "LOW"
+    }
+
+    return json.dumps(result, indent=2)
+
+
+# Geospatial Analyzer Tools
+
+@tool
+def get_user_gps_history(user_biotag: str, last_n_hours: int = 48) -> str:
+    """
+    Get GPS history for a user.
+
+    Args:
+        user_biotag: User biotag
+        last_n_hours: Hours of history to retrieve (default: 48)
+
+    Returns:
+        JSON string with GPS points
+    """
+    import json
+    from datetime import datetime, timedelta
+
+    data_mgr = DataManager.get_instance()
+    gps_data = data_mgr.get_user_gps(user_biotag)
+
+    if not gps_data:
+        return json.dumps({
+            "user_biotag": user_biotag,
+            "last_n_hours": last_n_hours,
+            "gps_points": [],
+            "message": "No GPS data found for this biotag"
+        })
+
+    # Filter by time window
+    try:
+        # Find most recent timestamp
+        timestamps = [
+            datetime.fromisoformat(point.get('timestamp', '').replace('Z', '+00:00'))
+            for point in gps_data
+            if point.get('timestamp')
+        ]
+
+        if not timestamps:
+            return json.dumps({
+                "user_biotag": user_biotag,
+                "last_n_hours": last_n_hours,
+                "gps_points": gps_data,
+                "message": "No valid timestamps, returning all points"
+            })
+
+        most_recent = max(timestamps)
+        cutoff_time = most_recent - timedelta(hours=last_n_hours)
+
+        # Filter points
+        recent_points = []
+        for point in gps_data:
+            try:
+                point_time = datetime.fromisoformat(point.get('timestamp', '').replace('Z', '+00:00'))
+                if point_time >= cutoff_time:
+                    recent_points.append(point)
+            except (ValueError, AttributeError):
+                continue
+
+    except Exception as e:
+        recent_points = gps_data  # Return all if filtering fails
+
+    result = {
+        "user_biotag": user_biotag,
+        "last_n_hours": last_n_hours,
+        "total_points": len(gps_data),
+        "filtered_points": len(recent_points),
+        "gps_points": recent_points
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> str:
+    """
+    Calculate distance between two points using Haversine formula.
+
+    Args:
+        lat1: Latitude of first point
+        lon1: Longitude of first point
+        lat2: Latitude of second point
+        lon2: Longitude of second point
+
+    Returns:
+        JSON with distance in km
+    """
+    import json
+    from math import radians, cos, sin, asin, sqrt
+
+    # Haversine formula
+    lat1_rad, lon1_rad, lat2_rad, lon2_rad = map(radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+    a = sin(dlat/2)**2 + cos(lat1_rad) * cos(lat2_rad) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a))
+    km = 6371 * c  # Earth radius in km
+
+    result = {
+        "point1": {"lat": lat1, "lon": lon1},
+        "point2": {"lat": lat2, "lon": lon2},
+        "distance_km": round(km, 2),
+        "distance_miles": round(km * 0.621371, 2)
+    }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def check_impossible_travel(
+    prev_lat: float, prev_lon: float, prev_time: str,
+    curr_lat: float, curr_lon: float, curr_time: str
+) -> str:
+    """
+    Check if travel between two points is physically impossible.
+
+    Args:
+        prev_lat: Previous latitude
+        prev_lon: Previous longitude
+        prev_time: Previous timestamp (ISO format)
+        curr_lat: Current latitude
+        curr_lon: Current longitude
+        curr_time: Current timestamp (ISO format)
+
+    Returns:
+        JSON with analysis: {is_impossible, distance_km, time_hours, required_speed_kmh}
+    """
+    import json
+    from math import radians, cos, sin, asin, sqrt
+    from datetime import datetime
+
+    # Calculate distance using Haversine
+    lat1_rad, lon1_rad, lat2_rad, lon2_rad = map(radians, [prev_lat, prev_lon, curr_lat, curr_lon])
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+    a = sin(dlat/2)**2 + cos(lat1_rad) * cos(lat2_rad) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a))
+    distance_km = 6371 * c
+
+    # Calculate time difference
+    try:
+        prev_dt = datetime.fromisoformat(prev_time.replace('Z', '+00:00'))
+        curr_dt = datetime.fromisoformat(curr_time.replace('Z', '+00:00'))
+        time_diff = curr_dt - prev_dt
+        time_hours = time_diff.total_seconds() / 3600
+
+        if time_hours <= 0:
+            return json.dumps({
+                "error": "Current time is before or equal to previous time",
+                "prev_time": prev_time,
+                "curr_time": curr_time
+            })
+
+        # Calculate required speed
+        required_speed_kmh = distance_km / time_hours
+
+        # Threshold: >800 km/h is considered impossible
+        # (Max commercial flight speed ~900 km/h, but accounting for boarding, taxi, etc.)
+        is_impossible = required_speed_kmh > 800
+
+        result = {
+            "is_impossible": is_impossible,
+            "distance_km": round(distance_km, 2),
+            "time_hours": round(time_hours, 2),
+            "required_speed_kmh": round(required_speed_kmh, 2),
+            "assessment": "IMPOSSIBLE" if is_impossible else "POSSIBLE",
+            "details": {
+                "previous_location": {"lat": prev_lat, "lon": prev_lon, "time": prev_time},
+                "current_location": {"lat": curr_lat, "lon": curr_lon, "time": curr_time}
+            }
+        }
+
+    except (ValueError, AttributeError) as e:
+        result = {
+            "error": f"Invalid timestamp format: {str(e)}",
+            "prev_time": prev_time,
+            "curr_time": curr_time
+        }
+
+    return json.dumps(result, indent=2)
+
+
+@tool
+def get_user_residence(user_iban: str) -> str:
+    """
+    Get user's residence location.
+
+    Args:
+        user_iban: User IBAN
+
+    Returns:
+        JSON with residence info (location_name, lat, lon)
+    """
+    import json
+
+    data_mgr = DataManager.get_instance()
+    user = data_mgr.get_user(user_iban)
+
+    if not user:
+        return json.dumps({
+            "user_iban": user_iban,
+            "found": False,
+            "message": "User not found"
+        })
+
+    residence = user.get('residence', {})
+
+    result = {
+        "user_iban": user_iban,
+        "found": True,
+        "residence": {
+            "city": residence.get('city'),
+            "latitude": float(residence.get('lat')) if residence.get('lat') else None,
+            "longitude": float(residence.get('lng')) if residence.get('lng') else None,
+            "coordinates": f"{residence.get('lat')}, {residence.get('lng')}" if residence.get('lat') else None
+        }
+    }
+
+    return json.dumps(result, indent=2)
+
+
+# Example/Test Tool (can be removed later)
+
 @tool
 def foo_command(input_text: str) -> str:
     """
