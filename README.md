@@ -1,6 +1,6 @@
 # AI Orchestration Template
 
-Ultra-minimal template for AI agent systems. **Zero abstractions**, direct LangChain usage, external prompts. No classes to inherit, just functions. Prompts in `.txt` files. Flat structure (~250 LOC core logic). Working examples included.
+Ultra-minimal single-file template for AI agent systems. **Zero abstractions**, direct LangChain usage, inline prompts. Everything in one file (~156 LOC). Langfuse observability required. Working example included.
 
 ## Quick Start
 
@@ -10,127 +10,108 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your settings:
+# Edit .env with required settings:
 # OLLAMA_BASE_URL=http://localhost:11434
 # OLLAMA_MODEL=llama3.2
 # TEMPERATURE=0.7
-
-# Optional: Configure Langfuse observability
-# Set ENABLE_TRACING=true and add your Langfuse credentials
-# LANGFUSE_PUBLIC_KEY=pk-lf-...
-# LANGFUSE_SECRET_KEY=sk-lf-...
+# LANGFUSE_PUBLIC_KEY=pk-lf-...      # REQUIRED
+# LANGFUSE_SECRET_KEY=sk-lf-...      # REQUIRED
 # LANGFUSE_HOST=https://cloud.langfuse.com
 
-# Run examples
-python main.py
+# Run the example
+python ai_orchestration.py
 ```
 
-**To use different providers**: Edit `main.py` Step 2 (e.g., replace `ChatOllama` with `ChatOpenAI`)
+**To use different providers**: Edit the `main()` function in `ai_orchestration.py` (e.g., replace `ChatOllama` with `ChatOpenAI`)
 
 ## Project Structure
 
 ```text
-exercise-1/
-├── agents.py              # Agent factory functions (~110 LOC)
-├── tools.py               # Tools with @tool decorator (~85 LOC)
-├── orchestrator.py        # Orchestrator factory (~110 LOC)
-├── observability.py       # Langfuse integration (optional, ~150 LOC)
-├── main.py                # Entry point with TODO (~190 LOC)
-├── prompts/               # External prompt files
-│   ├── general_agent.txt  # Prompt for general agent
-│   ├── math_agent.txt     # Prompt for math agent
-│   └── orchestrator.txt   # Prompt for orchestrator
-├── .env.example
-└── README.md
+ai-orchestration-template/
+├── ai_orchestration.py    # Single all-in-one file (~156 LOC)
+│                          # - Prompts as global variables
+│                          # - Langfuse integration (required)
+│                          # - Tool definitions
+│                          # - Agent creation
+│                          # - Example execution
+├── .env                   # Environment configuration
+├── .env.example           # Example configuration
+├── requirements.txt       # Python dependencies
+└── README.md             # This file
 ```
 
 ## How It Works
 
-**Tools** extend agent capabilities using `@tool` decorator:
+Everything is in `ai_orchestration.py` organized in sections:
+
+**1. Prompts** - Defined as global multiline strings:
 
 ```python
-from langchain.tools import tool
+FOO_AGENT_PROMPT = """You are a specialized foo agent.
 
+Your role:
+- Handle foo-related tasks using the foo_command tool
+- Provide clear and helpful responses
+"""
+```
+
+**2. Tools** - Using `@tool` decorator:
+
+```python
 @tool
-def my_tool(param: str) -> str:
-    """Tool description - LLM uses this to decide when to use the tool."""
-    return result
+def foo_command(input_text: str) -> str:
+    """Execute foo command. Use this tool to process foo-related requests."""
+    return f"Foo command executed with input: {input_text}"
 ```
 
-**Agents** are created via factory functions:
+**3. Agent Creation** - Explicit in main():
 
 ```python
-def create_my_agent(model, tools=None):
-    return create_agent(
-        model=model,
-        system_prompt=load_prompt("my_agent"),  # Loads from prompts/my_agent.txt
-        tools=tools or []
-    )
-```
-
-**Orchestrator** routes requests to appropriate agents:
-
-```python
-orchestrator = create_orchestrator(
+foo_agent = create_agent(
     model=model,
-    agents_dict={
-        "general": general_agent,
-        "math": math_agent
-    }
+    system_prompt=FOO_AGENT_PROMPT,
+    tools=[foo_command]
 )
 ```
 
-Follow TODO comments in `main.py` for setup steps.
+**4. Langfuse Integration** - Always enabled, configured via environment variables.
 
-## Examples
+## Example
 
-### Example 1: Direct Agent Call
-
-```python
-from agents import create_general_agent, invoke_agent
-
-agent = create_general_agent(model)
-response = invoke_agent(agent, "What is Python?")
-```
-
-### Example 2: Agent with Tools
+The template includes a working example with a foo agent and foo_command tool:
 
 ```python
-from agents import create_math_agent, invoke_agent
-from tools import calculator
-
-math_agent = create_math_agent(model, tools=[calculator])
-response = invoke_agent(math_agent, "Calculate 25 * 17")
-```
-
-### Example 3: Orchestrator
-
-```python
-from orchestrator import create_orchestrator, invoke_orchestrator
-
-orchestrator = create_orchestrator(
+# Create the agent
+foo_agent = create_agent(
     model=model,
-    agents_dict={"general": general_agent, "math": math_agent}
+    system_prompt=FOO_AGENT_PROMPT,
+    tools=[foo_command]
 )
 
-# Auto-routes to the right agent
-response = invoke_orchestrator(orchestrator, "Calculate 100 / 4 and explain Python")
+# Invoke the agent
+query = "Execute foo command with test input"
+result = foo_agent.invoke(
+    {"messages": [HumanMessage(query)]},
+    config={"callbacks": get_callbacks()}
+)
+response = result["messages"][-1].content
 ```
+
+Run with: `python ai_orchestration.py`
 
 ## Observability & Tracing
 
-This template includes optional Langfuse integration for tracing agent executions, tool calls, and LLM interactions.
+Langfuse integration is **required** for tracing agent executions, tool calls, and LLM interactions.
 
-### Enable Tracing
+### Setup Langfuse
 
 1. **Get Langfuse credentials** (choose one):
    - **Cloud**: Sign up at [cloud.langfuse.com](https://cloud.langfuse.com)
    - **Self-hosted**: Deploy Langfuse locally ([docs](https://langfuse.com/docs/deployment/self-host))
 
-2. **Configure in .env**:
+2. **Configure in .env** (required):
 
    ```bash
-   ENABLE_TRACING=true
    LANGFUSE_PUBLIC_KEY=pk-lf-your-public-key
    LANGFUSE_SECRET_KEY=sk-lf-your-secret-key
    LANGFUSE_HOST=https://cloud.langfuse.com  # or your self-hosted URL
@@ -138,38 +119,20 @@ This template includes optional Langfuse integration for tracing agent execution
 
 3. **Run your agents** - traces appear automatically in Langfuse dashboard
 
-### Disable Tracing
-
-Set in `.env`:
-
-```bash
-ENABLE_TRACING=false
-```
-
-Or remove Langfuse credentials entirely - the system gracefully degrades.
-
 ### What Gets Traced
 
-- Agent invocations (general, math, custom agents)
-- Orchestrator routing decisions
-- Tool executions (calculator, text_analyzer, etc.)
+- Agent invocations
+- Tool executions
 - LLM calls with prompts, completions, and token usage
-- Nested agent calls with proper parent-child relationships
-
-### View Traces
-
-Traces include:
-
 - Execution timeline and latency
-- Input/output for each step
-- Token usage and costs
-- Error tracking and debugging info
 
-Access the Langfuse dashboard at your `LANGFUSE_HOST` URL.
+Access the Langfuse dashboard at your `LANGFUSE_HOST` URL to view traces, token usage, and debugging info.
 
 ## Customization
 
-**Add a Tool** - Edit `tools.py`:
+All customization happens in `ai_orchestration.py`:
+
+**Add a Tool** - Add in SECTION 4:
 
 ```python
 @tool
@@ -178,40 +141,21 @@ def my_new_tool(param: str) -> str:
     return result
 ```
 
-Then add to agent: `agent = create_general_agent(model, tools=[calculator, my_new_tool])`
-
-**Add an Agent**:
-
-1. Create `prompts/my_agent.txt` with instructions
-2. Add factory in `agents.py`:
+**Add an Agent** - Add prompt in SECTION 1 and create in main():
 
 ```python
-def create_my_agent(model, tools=None):
-    return create_agent(
-        model=model,
-        system_prompt=load_prompt("my_agent"),
-        tools=tools or []
-    )
-```
+# SECTION 1: Add prompt
+MY_AGENT_PROMPT = """You are a specialized agent..."""
 
-3. Use in `main.py`: `my_agent = create_my_agent(model, tools=[...])`
-
-**Change Behavior** - Edit `.txt` files in `prompts/` (no code changes needed!)
-
-**Add to Orchestrator** - Edit `main.py`:
-
-```python
-orchestrator = create_orchestrator(
+# In main(): Create agent
+my_agent = create_agent(
     model=model,
-    agents_dict={
-        "general": general_agent,
-        "math": math_agent,
-        "my_new": my_new_agent,  # Add here
-    }
+    system_prompt=MY_AGENT_PROMPT,
+    tools=[my_new_tool]
 )
 ```
 
-Then update `prompts/orchestrator.txt` to describe when to use it.
+**Change Behavior** - Edit the prompt strings directly in SECTION 1
 
 ## Requirements
 
@@ -219,6 +163,14 @@ Then update `prompts/orchestrator.txt` to describe when to use it.
 - LangChain
 - LangChain Ollama (or other model provider)
 - python-dotenv
-- **Optional**: Langfuse (for observability)
+- Langfuse (required for observability)
 
 See `requirements.txt` for full list.
+
+## Key Features
+
+- **Single file**: Everything in one place (~156 LOC)
+- **No abstractions**: Direct LangChain usage
+- **Inline prompts**: Edit prompts as multiline strings
+- **Required observability**: Langfuse tracing always enabled
+- **Explicit code**: No helper functions, everything visible in main()
