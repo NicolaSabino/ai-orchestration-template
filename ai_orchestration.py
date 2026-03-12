@@ -254,6 +254,310 @@ langfuse_client = Langfuse(
 print(f"[Observability] Langfuse tracing enabled: {LANGFUSE_HOST}")
 
 
+# ============================================================================
+# SECTION 4.5: DATA MANAGER (Data Access Layer)
+# ============================================================================
+
+class DataManager:
+    """
+    Singleton class to manage all CSV/JSON data loading and caching.
+
+    Handles:
+    - Transactions (CSV)
+    - Users (JSON)
+    - GPS locations (JSON)
+    - Communications (mails + sms JSON)
+    """
+    _instance = None
+
+    def __init__(self, data_dir: str):
+        """
+        Initialize DataManager.
+
+        Args:
+            data_dir: Root directory containing data files
+        """
+        self.data_dir = data_dir
+        self._transactions = []  # List[Dict]
+        self._users = {}  # {iban: Dict}
+        self._users_by_name = {}  # {name: Dict} for biotag lookup
+        self._locations = []  # List[Dict] with biotag GPS data
+        self._locations_by_biotag = {}  # {biotag: List[Dict]}
+        self._mails = []  # List[Dict]
+        self._sms = []  # List[Dict]
+        self._communications_by_recipient = {}  # {email/phone: List[Dict]}
+
+    @classmethod
+    def get_instance(cls, data_dir: str = "."):
+        """
+        Get singleton instance of DataManager.
+
+        Args:
+            data_dir: Root directory containing data files
+
+        Returns:
+            DataManager instance
+        """
+        if cls._instance is None:
+            cls._instance = cls(data_dir)
+        return cls._instance
+
+    def load_all_data(self):
+        """Load all data files (transactions, users, locations, communications)."""
+        print("[DataManager] Loading all data...")
+        self.load_transactions()
+        self.load_users()
+        self.load_locations()
+        self.load_communications()
+        print("[DataManager] All data loaded successfully")
+
+    def load_transactions(self) -> List[Dict]:
+        """
+        Load transactions from CSV file.
+
+        Returns:
+            List of transaction dictionaries
+        """
+        import csv
+
+        csv_path = os.path.join(self.data_dir, "public", "transactions.csv")
+
+        if not os.path.exists(csv_path):
+            print(f"[DataManager] Warning: Transactions file not found: {csv_path}")
+            return []
+
+        self._transactions = []
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Convert amount to float
+                if 'amount' in row:
+                    try:
+                        row['amount'] = float(row['amount'])
+                    except (ValueError, TypeError):
+                        row['amount'] = 0.0
+
+                # Convert balance_after to float
+                if 'balance_after' in row:
+                    try:
+                        row['balance_after'] = float(row['balance_after'])
+                    except (ValueError, TypeError):
+                        row['balance_after'] = 0.0
+
+                self._transactions.append(row)
+
+        print(f"[DataManager] Loaded {len(self._transactions)} transactions")
+        return self._transactions
+
+    def load_users(self) -> Dict[str, Dict]:
+        """
+        Load users from JSON file and index by IBAN.
+
+        Returns:
+            Dictionary of users indexed by IBAN
+        """
+        import json
+
+        json_path = os.path.join(self.data_dir, "public", "users.json")
+
+        if not os.path.exists(json_path):
+            print(f"[DataManager] Warning: Users file not found: {json_path}")
+            return {}
+
+        with open(json_path, 'r', encoding='utf-8') as f:
+            users_list = json.load(f)
+
+        # Index by IBAN
+        self._users = {}
+        self._users_by_name = {}
+
+        for user in users_list:
+            if 'iban' in user:
+                self._users[user['iban']] = user
+
+                # Also index by full name for biotag lookup
+                if 'first_name' in user and 'last_name' in user:
+                    full_name = f"{user['first_name']} {user['last_name']}"
+                    self._users_by_name[full_name] = user
+
+        print(f"[DataManager] Loaded {len(self._users)} users")
+        return self._users
+
+    def load_locations(self) -> Dict[str, List[Dict]]:
+        """
+        Load GPS locations from JSON file and group by biotag.
+
+        Returns:
+            Dictionary of GPS points grouped by biotag
+        """
+        import json
+
+        json_path = os.path.join(self.data_dir, "public", "locations.json")
+
+        if not os.path.exists(json_path):
+            print(f"[DataManager] Warning: Locations file not found: {json_path}")
+            return {}
+
+        with open(json_path, 'r', encoding='utf-8') as f:
+            self._locations = json.load(f)
+
+        # Group by biotag and sort by timestamp
+        self._locations_by_biotag = {}
+        for loc in self._locations:
+            biotag = loc.get('biotag')
+            if biotag:
+                if biotag not in self._locations_by_biotag:
+                    self._locations_by_biotag[biotag] = []
+                self._locations_by_biotag[biotag].append(loc)
+
+        # Sort each biotag's locations by timestamp
+        for biotag in self._locations_by_biotag:
+            self._locations_by_biotag[biotag].sort(
+                key=lambda x: x.get('timestamp', '')
+            )
+
+        print(f"[DataManager] Loaded {len(self._locations)} GPS points for {len(self._locations_by_biotag)} biotags")
+        return self._locations_by_biotag
+
+    def load_communications(self) -> Dict[str, List[Dict]]:
+        """
+        Load communications (mails + sms) from JSON files and group by recipient.
+
+        Returns:
+            Dictionary of communications grouped by recipient identifier
+        """
+        import json
+        import re
+
+        # Load mails
+        mails_path = os.path.join(self.data_dir, "public", "mails.json")
+        if os.path.exists(mails_path):
+            with open(mails_path, 'r', encoding='utf-8') as f:
+                self._mails = json.load(f)
+            print(f"[DataManager] Loaded {len(self._mails)} mails")
+        else:
+            print(f"[DataManager] Warning: Mails file not found: {mails_path}")
+            self._mails = []
+
+        # Load SMS
+        sms_path = os.path.join(self.data_dir, "public", "sms.json")
+        if os.path.exists(sms_path):
+            with open(sms_path, 'r', encoding='utf-8') as f:
+                self._sms = json.load(f)
+            print(f"[DataManager] Loaded {len(self._sms)} SMS")
+        else:
+            print(f"[DataManager] Warning: SMS file not found: {sms_path}")
+            self._sms = []
+
+        # Group by recipient
+        self._communications_by_recipient = {}
+
+        # Process mails - extract recipient email from "To:" header
+        for mail in self._mails:
+            mail_text = mail.get('mail', '')
+            # Extract email from To: line
+            to_match = re.search(r'To:\s*"([^"]+)"\s*<([^>]+)>', mail_text)
+            if to_match:
+                recipient_email = to_match.group(2).strip()
+                if recipient_email not in self._communications_by_recipient:
+                    self._communications_by_recipient[recipient_email] = []
+                self._communications_by_recipient[recipient_email].append({
+                    'type': 'mail',
+                    'content': mail_text,
+                    'data': mail
+                })
+
+        # Process SMS - extract recipient phone from "To:" line
+        for sms in self._sms:
+            sms_text = sms.get('sms', '')
+            # Extract phone from To: line
+            to_match = re.search(r'To:\s*(\+?\d+)', sms_text)
+            if to_match:
+                recipient_phone = to_match.group(1).strip()
+                if recipient_phone not in self._communications_by_recipient:
+                    self._communications_by_recipient[recipient_phone] = []
+                self._communications_by_recipient[recipient_phone].append({
+                    'type': 'sms',
+                    'content': sms_text,
+                    'data': sms
+                })
+
+        total_comms = sum(len(v) for v in self._communications_by_recipient.values())
+        print(f"[DataManager] Indexed {total_comms} communications for {len(self._communications_by_recipient)} recipients")
+
+        return self._communications_by_recipient
+
+    # Getter methods
+
+    def get_transactions(self) -> List[Dict]:
+        """Get all loaded transactions."""
+        return self._transactions
+
+    def get_user(self, iban: str) -> Optional[Dict]:
+        """
+        Get user by IBAN.
+
+        Args:
+            iban: User IBAN
+
+        Returns:
+            User dict or None if not found
+        """
+        return self._users.get(iban)
+
+    def get_user_by_name(self, name: str) -> Optional[Dict]:
+        """
+        Get user by full name.
+
+        Args:
+            name: Full name (first + last)
+
+        Returns:
+            User dict or None if not found
+        """
+        return self._users_by_name.get(name)
+
+    def get_all_users(self) -> Dict[str, Dict]:
+        """Get all users indexed by IBAN."""
+        return self._users
+
+    def get_user_gps(self, biotag: str) -> List[Dict]:
+        """
+        Get GPS history for a user by biotag.
+
+        Args:
+            biotag: User biotag
+
+        Returns:
+            List of GPS points sorted by timestamp
+        """
+        return self._locations_by_biotag.get(biotag, [])
+
+    def get_user_communications(self, recipient_id: str) -> List[Dict]:
+        """
+        Get communications for a recipient (email or phone).
+
+        Args:
+            recipient_id: Email address or phone number
+
+        Returns:
+            List of communication dictionaries
+        """
+        return self._communications_by_recipient.get(recipient_id, [])
+
+    def get_all_locations(self) -> List[Dict]:
+        """Get all GPS locations."""
+        return self._locations
+
+    def get_all_mails(self) -> List[Dict]:
+        """Get all emails."""
+        return self._mails
+
+    def get_all_sms(self) -> List[Dict]:
+        """Get all SMS."""
+        return self._sms
+
+
 def generate_session_id():
     """Generate a unique session ID using TEAM_NAME and ULID."""
     team_name = os.getenv("TEAM_NAME", "default-team")
