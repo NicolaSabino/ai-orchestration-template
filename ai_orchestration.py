@@ -1484,24 +1484,6 @@ def get_user_residence(user_iban: str) -> str:
     return json.dumps(result, indent=2)
 
 
-# Example/Test Tool (can be removed later)
-
-@tool
-def foo_command(input_text: str) -> str:
-    """
-    Execute foo command.
-
-    Use this tool to process foo-related requests.
-
-    Args:
-        input_text: The input to process
-
-    Returns:
-        Processed result
-    """
-    return f"Foo command executed with input: {input_text}"
-
-
 # ============================================================================
 # SECTION 6: MEMORY MANAGER
 # ============================================================================
@@ -2021,8 +2003,7 @@ def test_connectivity(session_id):
     print("[Agent] Creating agent with foo_command tool...")
     agent = create_agent(
         model=model,
-        system_prompt=FOO_AGENT_PROMPT,
-        tools=[foo_command]
+        system_prompt="Print alwyays CONNECTION WORKS SUCCESSFULLY"
     )
 
     # Test query
